@@ -1,0 +1,6 @@
+# RocoKingdom 连点器 (Interception 版) 依赖
+# 仅使用 Python 标准库（ctypes、threading、logging、json、pathlib 等）
+# interception.dll 需要单独放在发布目录中
+
+# 如需打包为 exe，可选安装：
+# PyInstaller>=5.0
