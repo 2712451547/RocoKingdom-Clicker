@@ -25,7 +25,10 @@
 run_clicker.bat
 ```
 
-这个脚本会自动申请管理员权限、创建本地 `.venv`，然后启动 `Clicker.py`。
+这个脚本会自动申请管理员权限，并根据当前目录自动选择运行模式：
+
+- 有 `RocoKingdom_Clicker.exe` 时，直接启动发布包
+- 没有 `RocoKingdom_Clicker.exe` 时，创建本地 `.venv` 并启动 `Clicker.py`
 
 ## 发布打包
 
@@ -35,9 +38,14 @@ run_clicker.bat
 build_release.bat
 ```
 
-打包脚本会自动探测可用的全局 Python，安装 PyInstaller，执行 `onedir` 打包，并把 `interception.dll`、`run_clicker.bat` 和 `README.md` 一并放进发布目录，最后生成：
+打包脚本会自动探测可用的全局 Python，安装 PyInstaller，执行 `onedir` 打包，并把 `interception.dll`、`run_clicker.bat`、`README.md` 以及下面这些运行数据一并放进发布目录，最后生成：
 
 - `release/RocoKingdom_Clicker.zip`
+
+另外，发布包会明确带上下面这些运行数据，方便直接使用示例脚本和默认配置：
+
+- `data/action_scripts/`
+- `data/clicker_configs/default.json`
 
 脚本默认会在可用的 Python 解释器里按以下顺序探测：
 

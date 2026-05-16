@@ -10,6 +10,8 @@ if errorlevel 1 (
     exit /b
 )
 
+if exist "%~dp0RocoKingdom_Clicker.exe" goto release_mode
+
 title RocoKingdom Clicker Release
 color 0A
 cls
@@ -53,6 +55,39 @@ echo ========================================
 echo.
 
 "%PYTHON_EXE%" Clicker.py
+
+if errorlevel 1 (
+    color 0C
+    echo.
+    echo ERROR: Program crashed
+    echo.
+) else (
+    color 02
+    echo.
+    echo OK: Program exited normally
+    echo.
+)
+
+pause
+endlocal
+goto :eof
+
+:release_mode
+title RocoKingdom Clicker Release
+color 0A
+cls
+
+echo.
+echo ========================================
+echo     RocoKingdom Clicker Release
+echo         Powered by Interception
+echo ========================================
+echo.
+
+echo Launching bundled release executable...
+echo.
+
+"%~dp0RocoKingdom_Clicker.exe"
 
 if errorlevel 1 (
     color 0C
