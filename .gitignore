@@ -1,2 +1,11 @@
 .venv
 __pycache__
+
+# Generated release artifacts (kept here as notes; uncomment if you want Git to ignore them)
+dist/
+build_pyinstaller/
+release/
+build_release_debug.log
+build_release_debug.bat
+build_release_fixed.bat
+RocoKingdom-Clicker-Release/data/clicker.log

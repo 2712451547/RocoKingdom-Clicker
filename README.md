@@ -27,6 +27,25 @@ run_clicker.bat
 
 这个脚本会自动申请管理员权限、创建本地 `.venv`，然后启动 `Clicker.py`。
 
+## 发布打包
+
+如果你要生成发布包，直接运行根目录下的 `build_release.bat` 即可：
+
+```bat
+build_release.bat
+```
+
+打包脚本会自动探测可用的全局 Python，安装 PyInstaller，执行 `onedir` 打包，并把 `interception.dll`、`run_clicker.bat` 和 `README.md` 一并放进发布目录，最后生成：
+
+- `release/RocoKingdom_Clicker.zip`
+
+脚本默认会在可用的 Python 解释器里按以下顺序探测：
+
+1. `py -3.10`
+2. `py -3`
+3. `python`
+4. `%LocalAppData%\Programs\Python\Python310\python.exe`
+
 ## 项目文件
 
 - `Clicker.py`：主程序和菜单
@@ -34,6 +53,7 @@ run_clicker.bat
 - `ActionScript.py`：动作脚本系统
 - `ConfigManager.py`：配置保存与加载
 - `run_clicker.bat`：正式启动脚本
+- `build_release.bat`：正式发布打包脚本
 
 ## 多步动作脚本
 
