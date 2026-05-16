@@ -78,8 +78,9 @@ class InterceptionCore:
         self.click_count = 0
         self.start_time: Optional[float] = None
         self.focus_callback: Optional[Callable[[], bool]] = None
+        self._click_anchor_x = self.config.center_x
+        self._click_anchor_y = self.config.center_y
         self._next_micro_pause_at = random.randint(6, 13)
-        self._next_idle_move_at = random.randint(4, 10)
         self.logger = logging.getLogger("interception_clicker")
         
         # 加载 Interception 库
@@ -163,7 +164,7 @@ class InterceptionCore:
 
     def _move_mouse_to(self, x: int, y: int) -> bool:
         """移动鼠标到指定位置（绝对坐标）"""
-        abs_x, abs_y = self._screen_to_interception(int(x), int(y))
+        abs_x, abs_y = self._screen_to_interception(int(round(x)), int(round(y)))
         stroke = InterceptionMouseStroke()
         stroke.state = 0
         stroke.flags = 0x001  # INTERCEPTION_MOUSE_MOVE_ABSOLUTE
@@ -195,16 +196,22 @@ class InterceptionCore:
         stroke.information = 0
         return self._send_mouse_stroke(stroke)
 
-    def _perform_click(self) -> bool:
-        """执行一次完整的点击"""
-        # 计算目标坐标（圆形随机）
+    def _random_target_around(self, center_x: int, center_y: int) -> tuple[int, int]:
+        """围绕固定中心生成一次随机目标点。"""
         angle = random.uniform(0, 2 * math.pi)
         dist = random.uniform(0, self.config.radius)
         offset_x = dist * math.cos(angle)
         offset_y = dist * math.sin(angle)
-        
-        target_x = self.config.center_x + offset_x
-        target_y = self.config.center_y + offset_y
+        return int(round(center_x + offset_x)), int(round(center_y + offset_y))
+
+    def _perform_click(self, center_x: Optional[int] = None, center_y: Optional[int] = None) -> bool:
+        """执行一次完整的点击"""
+        if center_x is None:
+            center_x = self._click_anchor_x
+        if center_y is None:
+            center_y = self._click_anchor_y
+
+        target_x, target_y = self._random_target_around(center_x, center_y)
         
         # 移动鼠标
         self._move_mouse_to(target_x, target_y)
@@ -227,6 +234,8 @@ class InterceptionCore:
     def _clicking_loop(self):
         """后台点击循环"""
         self.logger.info("点击循环已启动")
+        base_center_x = self._click_anchor_x
+        base_center_y = self._click_anchor_y
         
         try:
             while self.running:
@@ -240,19 +249,12 @@ class InterceptionCore:
                         self.logger.warning("焦点回调失败: %s", e)
                 
                 # 执行点击
-                self._perform_click()
+                self._perform_click(base_center_x, base_center_y)
                 
                 # 微暂停（模拟人工 - 每 7~13 次随机）
                 if self.click_count % self._next_micro_pause_at == 0:
                     time.sleep(random.uniform(0.15, 0.35))
                     self._next_micro_pause_at = random.randint(6, 13)
-                
-                # 空闲移动（模拟人工 - 每 4~10 次随机）
-                if self.click_count % self._next_idle_move_at == 0:
-                    idle_x = self.config.center_x + random.uniform(-30, 30)
-                    idle_y = self.config.center_y + random.uniform(-30, 30)
-                    self._move_mouse_to(idle_x, idle_y)
-                    self._next_idle_move_at = random.randint(4, 10)
                 
                 # 点击间隔
                 interval = self.config.click_interval / 1000.0
@@ -276,8 +278,9 @@ class InterceptionCore:
         self.running = True
         self.click_count = 0
         self.start_time = time.time()
+        self._click_anchor_x = self.config.center_x
+        self._click_anchor_y = self.config.center_y
         self._next_micro_pause_at = random.randint(6, 13)
-        self._next_idle_move_at = random.randint(4, 10)
         
         self.thread = threading.Thread(target=self._clicking_loop, daemon=True)
         self.thread.start()

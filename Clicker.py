@@ -21,7 +21,6 @@ from ActionScript import (
     MoveAction,
     KeyAction,
     WaitAction,
-    LoopAction,
     TargetWindowBinding,
     list_windows_for_process,
 )
@@ -81,7 +80,6 @@ class ClickerManager:
         self.action_manager = ActionScriptManager(get_app_dir() / "data")
         self.running = True
         self.listening = False  # 标记是否在监听热键
-        self.active_script_session = None
         self.clicker.set_focus_callback(self._ensure_click_target_foreground)
         self.logger.info("连点器管理器已初始化")
 
@@ -295,21 +293,20 @@ class ClickerManager:
                 print("❌ 输入错误")
 
     def action_script_menu(self):
-        """动作脚本管理（列出/执行/删除）"""
+        """动作脚本管理（列出/执行/创建/删除）"""
         while True:
             scripts = self.action_manager.list_scripts()
             print("\n动作脚本:")
             if scripts:
                 for i, s in enumerate(scripts, 1):
-                    actions = self.action_manager.load_script(s)
-                    print(f"  {i}. {s} ({self._count_actions(actions)} 步)")
+                    print(f"  {i}. {s}")
             else:
                 print("  (无脚本)")
 
-            print("  e<number> - 进入脚本会话，例如 e1")
+            print("  e<number> - 执行脚本，例如 e1")
+            print("  c - 创建简单点击脚本")
             print("  d<number> - 删除脚本，例如 d1")
             print("  b - 返回")
-            print("  脚本请直接编辑 data/action_scripts/*.json")
             choice = input("选择操作: ").strip()
             if not choice or choice.lower() == 'b':
                 return
@@ -318,7 +315,12 @@ class ClickerManager:
                     idx = int(choice[1:]) - 1
                     if 0 <= idx < len(scripts):
                         name = scripts[idx]
-                        self.run_script_session(name)
+                        actions = self.action_manager.load_script(name)
+                        if actions:
+                            threading.Thread(target=self.action_executor.execute_sequence, args=(actions,), daemon=True).start()
+                            print(f"✓ 已开始执行脚本: {name}")
+                        else:
+                            print("❌ 加载脚本失败")
                     else:
                         print("❌ 编号无效")
                 except ValueError:
@@ -340,135 +342,21 @@ class ClickerManager:
                 except ValueError:
                     print("❌ 输入错误")
                 continue
-
-    def _count_actions(self, actions):
-        """递归统计动作数。"""
-        total = 0
-        for action in actions:
-            if isinstance(action, LoopAction):
-                total += 1 + self._count_actions(action.actions)
-            else:
-                total += 1
-        return total
-
-    def _prompt_action_block(self, intro_text: str):
-        """递归录入一个动作块。"""
-        actions = []
-        print(intro_text)
-        print("支持类型: click, move, key, wait, loop")
-        while True:
-            action_type = input("动作类型 [click/move/key/wait/loop/done]: ").strip().lower()
-            if action_type in ('done', 'end', 'q', ''):
-                break
-            if action_type == 'click':
-                x = int(input("点击 X 坐标: "))
-                y = int(input("点击 Y 坐标: "))
-                hold = int(input("按住时长 ms (默认100): ") or 100)
-                actions.append(ClickAction(x=x, y=y, hold_ms=hold))
-            elif action_type == 'move':
-                x = int(input("移动 X 坐标: "))
-                y = int(input("移动 Y 坐标: "))
-                duration = int(input("移动耗时 ms (默认100): ") or 100)
-                actions.append(MoveAction(x=x, y=y, duration_ms=duration))
-            elif action_type == 'key':
-                vk_code = int(input("虚拟键码 VK_CODE (例如 32): "))
-                hold = int(input("按住时长 ms (默认50): ") or 50)
-                actions.append(KeyAction(vk_code=vk_code, hold_ms=hold))
-            elif action_type == 'wait':
-                duration = int(input("等待时长 ms: "))
-                actions.append(WaitAction(duration_ms=duration))
-            elif action_type == 'loop':
-                count_text = input("循环次数 (0=一直循环直到 F4): ").strip()
-                count = int(count_text or "1")
-                forever = count == 0
-                if forever:
-                    count = 1
-                print("开始输入 loop 内部动作，输入 done 结束 loop 体。")
-                loop_actions = self._prompt_action_block("loop 体:")
-                if loop_actions:
-                    actions.append(LoopAction(actions=loop_actions, count=count, forever=forever))
-                else:
-                    print("❌ loop 体为空，已忽略")
-            else:
-                print("❌ 不支持的动作类型")
-        return actions
-
-    def _script_countdown(self, text: str, seconds: int = 3) -> bool:
-        """启动前倒计时，F4 可直接返回。"""
-        print(f"\n{text}")
-        print("按 F4 可直接返回。")
-        for remaining in range(seconds, 0, -1):
-            if key_pressed(VK_F4):
-                print("✓ 已返回")
-                return False
-            print(f"   {remaining} 秒后开始...")
-            time.sleep(1)
-        return True
-
-    def run_script_session(self, script_name: str):
-        """运行脚本会话，支持暂停、恢复和退出。"""
-        actions = self.action_manager.load_script(script_name)
-        if not actions:
-            print("❌ 加载脚本失败")
-            return
-
-        if not self._script_countdown(f"脚本 '{script_name}' 即将启动", 3):
-            return
-
-        stop_event = threading.Event()
-        pause_event = threading.Event()
-        pause_event.set()
-        session_thread = threading.Thread(
-            target=self.action_executor.execute_sequence,
-            args=(actions, stop_event, pause_event),
-            daemon=True,
-        )
-
-        self.active_script_session = {
-            "name": script_name,
-            "stop_event": stop_event,
-            "pause_event": pause_event,
-            "thread": session_thread,
-        }
-
-        session_thread.start()
-        print(f"✓ 已开始执行脚本: {script_name}")
-        print("控制: F2 暂停 | F1 恢复 | F4 退出")
-
-        was_paused = False
-        try:
-            while session_thread.is_alive():
-                if key_pressed(VK_F4):
-                    stop_event.set()
-                    pause_event.set()
-                    break
-                if key_pressed(VK_F2) and pause_event.is_set():
-                    pause_event.clear()
-                    was_paused = True
-                    print("\n脚本已暂停。")
-                    print("按 F1 继续，按 F4 退出。")
-                    time.sleep(0.3)
-                    continue
-                if key_pressed(VK_F1) and not pause_event.is_set():
-                    if not self._script_countdown("脚本将在 3 秒后继续", 3):
-                        stop_event.set()
-                        pause_event.set()
-                        break
-                    pause_event.set()
-                    was_paused = False
-                    print("✓ 脚本已继续")
-                    time.sleep(0.3)
-                    continue
-                if was_paused and not pause_event.is_set():
-                    time.sleep(0.1)
-                    continue
-                time.sleep(0.05)
-        finally:
-            stop_event.set()
-            pause_event.set()
-            session_thread.join(timeout=1.0)
-            self.active_script_session = None
-            print("✓ 脚本会话已结束")
+            if choice.lower() == 'c':
+                try:
+                    name = input("脚本名 (不含扩展名): ").strip()
+                    if not name:
+                        print("❌ 名称不能为空")
+                        continue
+                    x = int(input("点击 X 坐标: "))
+                    y = int(input("点击 Y 坐标: "))
+                    hold = int(input("按住时长 ms (默认100): ") or 100)
+                    action = ClickAction(x=x, y=y, hold_ms=hold)
+                    self.action_manager.save_script(name, [action])
+                    print(f"✓ 已创建脚本: {name}")
+                except ValueError:
+                    print("❌ 输入错误")
+                continue
 
     def _bind_target_window_menu(self):
         """目标窗口绑定菜单。"""
@@ -512,8 +400,14 @@ class ClickerManager:
             scripts = self.action_manager.list_scripts()
             
             if script_name in scripts:
-                self.logger.info("执行脚本会话: %s", script_name)
-                self.run_script_session(script_name)
+                actions = self.action_manager.load_script(script_name)
+                if actions:
+                    self.logger.info("执行脚本: %s", script_name)
+                    threading.Thread(
+                        target=self.action_executor.execute_sequence,
+                        args=(actions,),
+                        daemon=True
+                    ).start()
             else:
                 self.logger.warning("脚本不存在: %s", script_name)
 
