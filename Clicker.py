@@ -140,7 +140,7 @@ class ClickerManager:
         print("\n")
         print("╔════════════════════════════════════════╗")
         print("║           ROCOKINGDOM 连点器            ║")
-        print("║     基于 KeymouseGo 的高效点击工具      ║")
+        print("║   基于 Interception 驱动的高效点击工具   ║")
         print("╚════════════════════════════════════════╝")
         print("\n【热键控制】")
         print("  F1  - 启动连点器")
