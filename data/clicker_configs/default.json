@@ -2,6 +2,7 @@
     "center_x": 1280,
     "center_y": 800,
     "radius": 0,
+    "move_mouse": false,
     "click_interval": 500,
     "hold_duration": 800,
     "jitter_range": 200

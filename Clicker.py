@@ -154,6 +154,7 @@ class ClickerManager:
         print(f"  点击间隔: {self.clicker.config.click_interval}ms")
         print(f"  按压持续时间: {self.clicker.config.hold_duration}ms")
         print(f"  时间抖动范围: {self.clicker.config.jitter_range}ms")
+        print(f"  启动时移动鼠标到目标: {getattr(self.clicker.config, 'move_mouse', True)}")
         print("\n【参数调整】(输入数字选择)")
         print("  1 - 设置点击中心位置")
         print("  2 - 设置随机移动半径")
@@ -165,6 +166,7 @@ class ClickerManager:
         print("  8 - 动作脚本管理（创建/执行/删除脚本）")
         print("  9 - 绑定目标窗口（NRC-Win64-Shipping.exe）")
         print("  0 - 开始监听热键")
+        print("  m - 切换是否在每次点击前移动鼠标 (默认: 关闭)")
         print("\n")
         print(f"【脚本目标窗口】{self.target_window.describe()}")
         print("\n")
@@ -221,6 +223,12 @@ class ClickerManager:
                     print("❌ 输入错误")
             elif choice == "6":
                 self.load_config_menu()
+            elif choice.lower() == 'm':
+                # 切换是否移动鼠标
+                cur = getattr(self.clicker.config, 'move_mouse', True)
+                self.clicker.config.move_mouse = not cur
+                ConfigManager.save_config(self.clicker.config, "default")
+                print(f"✓ move_mouse 已设置为 {self.clicker.config.move_mouse}")
             elif choice == "7":
                 self.manage_configs_menu()
             elif choice == "8":

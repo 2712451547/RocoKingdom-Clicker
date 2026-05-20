@@ -54,6 +54,9 @@ class ClickerConfig:
         self.center_x = SW // 2
         self.center_y = SH // 2
         self.radius = 30
+        # 是否在每次点击前移动鼠标到目标坐标；
+        # 若设为 False，则只发送按下/释放事件，使用当前鼠标位置进行点击
+        self.move_mouse = False
         # 默认：按住约800ms(每次会额外随机±200~400ms)，然后等待随机300~700ms再按下一次
         self.click_interval = 500
         self.hold_duration = 800
@@ -212,10 +215,10 @@ class InterceptionCore:
             center_y = self._click_anchor_y
 
         target_x, target_y = self._random_target_around(center_x, center_y)
-        
-        # 移动鼠标
-        self._move_mouse_to(target_x, target_y)
-        time.sleep(0.02)
+        # 根据配置决定是否移动鼠标到目标坐标
+        if getattr(self.config, 'move_mouse', True):
+            self._move_mouse_to(target_x, target_y)
+            time.sleep(0.02)
         
         # 按下左键
         self._mouse_down()
@@ -309,6 +312,7 @@ class InterceptionCore:
             "center_x": self.config.center_x,
             "center_y": self.config.center_y,
             "radius": self.config.radius,
+            "move_mouse": getattr(self.config, 'move_mouse', True),
             "click_interval": self.config.click_interval,
             "hold_duration": self.config.hold_duration,
             "jitter_range": self.config.jitter_range,

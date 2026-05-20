@@ -95,6 +95,8 @@ class ConfigManager:
                     config.center_y = data['center_y']
                 if 'radius' in data:
                     config.radius = data['radius']
+                if 'move_mouse' in data:
+                    config.move_mouse = bool(data['move_mouse'])
                 if 'click_interval' in data:
                     config.click_interval = data['click_interval']
                 if 'hold_duration' in data:
@@ -128,6 +130,7 @@ class ConfigManager:
                     'center_x': config_data.center_x,
                     'center_y': config_data.center_y,
                     'radius': config_data.radius,
+                        'move_mouse': getattr(config_data, 'move_mouse', True),
                     'click_interval': config_data.click_interval,
                     'hold_duration': config_data.hold_duration,
                     'jitter_range': config_data.jitter_range,

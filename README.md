@@ -35,7 +35,7 @@ run_clicker.bat
 如果你要生成发布包，直接运行根目录下的 `build_release.bat` 即可：
 
 ```bat
-build_release.bat
+.\build_release.bat
 ```
 
 打包脚本会自动探测可用的全局 Python，安装 PyInstaller，执行 `onedir` 打包，并把 `interception.dll`、`run_clicker.bat`、`README.md` 以及下面这些运行数据一并放进发布目录，最后生成：
@@ -97,12 +97,16 @@ build_release.bat
 
 ### 支持的动作类型
 
-- `click`：移动到指定坐标并点击一次
+- `click`：移动到指定坐标并点击一次（若全局设置 `move_mouse=false`，则不会移动鼠标，仅在当前鼠标位置发送按下/释放事件）
 - `move`：移动到指定坐标，不点击
 - `key`：按下并释放一个虚拟键码
 - `combo`：同时按下多个虚拟键码，适合 WASD 转圈或斜向移动
 - `wait`：暂停指定毫秒数
 - `loop`：循环执行一组动作，`count=0` 或 `forever=true` 表示一直循环到按 `F4`
+
+注意：程序默认不会在每次点击前移动鼠标（全局设置 `move_mouse` 默认为 false）。
+当 `move_mouse=false` 时，`click` 动作只会发送按下/释放事件，作用于当前鼠标位置；
+如需切换，可在主菜单按 `m` 切换，或编辑配置文件 `data/clicker_configs/default.json` 中的 `move_mouse` 字段。
 
 ### 类人化选项
 
