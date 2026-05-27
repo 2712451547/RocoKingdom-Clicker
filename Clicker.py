@@ -135,6 +135,91 @@ class ClickerManager:
             self.logger.info("平均频率: %.2f次/秒", stats["clicks_per_second"])
         self.logger.info("====================================")
 
+    def _countdown_and_activate_target(self, title: str, after_message: str) -> None:
+        """统一的启动倒计时流程。"""
+        print(f"\n⏳ {title}将在 3 秒后启动，请切换到游戏窗口...")
+        for countdown in range(3, 0, -1):
+            print(f"   倒计时: {countdown}...")
+            time.sleep(1)
+
+        if self.target_window.is_bound():
+            activated = self.target_window.activate()
+            self.logger.info("启动前激活目标窗口: %s | 结果=%s", self.target_window.describe(), activated)
+
+        print(after_message)
+
+    def _run_script_session(self, script_name: str, actions) -> None:
+        """以和连点器类似的方式运行动作脚本。"""
+        stop_event = threading.Event()
+        pause_event = threading.Event()
+        pause_event.set()
+
+        worker = threading.Thread(
+            target=self.action_executor.execute_sequence,
+            args=(actions, stop_event, pause_event),
+            daemon=True,
+        )
+
+        self.logger.info("脚本将在 3 秒后启动: %s", script_name)
+        self._countdown_and_activate_target(
+            f"脚本 {script_name}",
+            f"✓ 脚本已启动: {script_name}",
+        )
+        worker.start()
+
+        print("\n【脚本热键】")
+        print("  F1  - 继续脚本（暂停后使用，继续前再次等待 3 秒）")
+        print("  F2  - 暂停脚本")
+        print("  F4  - 退出脚本并返回菜单")
+
+        paused = False
+        while worker.is_alive():
+            try:
+                if key_pressed(VK_F2) and not paused:
+                    pause_event.clear()
+                    paused = True
+                    self.logger.info("脚本已暂停: %s", script_name)
+                    print("⏸ 脚本已暂停")
+                    time.sleep(0.3)
+
+                if key_pressed(VK_F1) and paused:
+                    self.logger.info("脚本将在 3 秒后继续: %s", script_name)
+                    print("\n⏳ 脚本将在 3 秒后继续执行，请切换到游戏窗口...")
+                    for countdown in range(3, 0, -1):
+                        if stop_event.is_set():
+                            break
+                        print(f"   倒计时: {countdown}...")
+                        time.sleep(1)
+                    if not stop_event.is_set():
+                        if self.target_window.is_bound():
+                            activated = self.target_window.activate()
+                            self.logger.info("继续前激活目标窗口: %s | 结果=%s", self.target_window.describe(), activated)
+                        pause_event.set()
+                        paused = False
+                        print("▶ 脚本已继续")
+                    time.sleep(0.3)
+
+                if key_pressed(VK_F4):
+                    stop_event.set()
+                    pause_event.set()
+                    self.logger.info("脚本会话已终止: %s", script_name)
+                    print("■ 脚本已终止，返回菜单")
+                    worker.join(timeout=1.0)
+                    return
+
+                time.sleep(0.05)
+            except Exception as e:
+                self.logger.error("脚本会话异常: %s", e)
+                stop_event.set()
+                pause_event.set()
+                break
+
+        if stop_event.is_set():
+            return
+
+        print("✓ 脚本已执行完成")
+        self.logger.info("脚本执行完成: %s", script_name)
+
     def show_menu(self):
         """显示主菜单。"""
         print("\n")
@@ -325,8 +410,7 @@ class ClickerManager:
                         name = scripts[idx]
                         actions = self.action_manager.load_script(name)
                         if actions:
-                            threading.Thread(target=self.action_executor.execute_sequence, args=(actions,), daemon=True).start()
-                            print(f"✓ 已开始执行脚本: {name}")
+                            self._run_script_session(name, actions)
                         else:
                             print("❌ 加载脚本失败")
                     else:
