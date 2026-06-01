@@ -34,7 +34,7 @@ run_clicker.bat
 
 ### 执行脚本
 
-![界面说明](docs\pic\9.png)
+![界面说明](docs/pic/9.png)
 
 上图为软件的用户界面：
 
