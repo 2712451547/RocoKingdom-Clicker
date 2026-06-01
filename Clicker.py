@@ -13,6 +13,7 @@ import sys
 import time
 from pathlib import Path
 import threading
+import argparse
 
 from InterceptionCore import InterceptionCore
 from ConfigManager import ConfigManager
@@ -23,8 +24,6 @@ from ActionScript import (
     MoveAction,
     KeyAction,
     WaitAction,
-    TargetWindowBinding,
-    list_windows_for_process,
 )
 
 
@@ -43,6 +42,8 @@ VK_6 = 0x36
 VK_7 = 0x37
 VK_8 = 0x38
 VK_9 = 0x39
+
+
 
 WH_KEYBOARD_LL = 13
 WM_KEYDOWN = 0x0100
@@ -130,7 +131,12 @@ class GlobalHotkeyListener:
 
     def get_event(self, timeout: float = 0.05):
         try:
-            return self._queue.get(timeout=timeout)
+            ev = self._queue.get(timeout=timeout)
+            try:
+                self._logger.debug("hotkey consumer: get_event %s", ev)
+            except Exception:
+                pass
+            return ev
         except queue.Empty:
             return None
 
@@ -145,10 +151,18 @@ class GlobalHotkeyListener:
                 if w_param in (WM_KEYDOWN, WM_SYSKEYDOWN):
                     if vk_code not in self._pressed_keys:
                         self._pressed_keys.add(vk_code)
+                        try:
+                            self._logger.debug("hotkey producer: put down %s", vk_code)
+                        except Exception:
+                            pass
                         self._queue.put(("down", vk_code))
                 elif w_param in (WM_KEYUP, WM_SYSKEYUP):
                     if vk_code in self._pressed_keys:
                         self._pressed_keys.discard(vk_code)
+                        try:
+                            self._logger.debug("hotkey producer: put up %s", vk_code)
+                        except Exception:
+                            pass
                         self._queue.put(("up", vk_code))
 
             return user32.CallNextHookEx(self._hook, n_code, w_param, l_param)
@@ -205,41 +219,72 @@ class ClickerManager:
     def __init__(self):
         self.logger = logging.getLogger("clicker")
         self.clicker = InterceptionCore()
-        self.target_process_name = "NRC-Win64-Shipping.exe"
-        self.target_window = TargetWindowBinding(self.target_process_name)
-        self.action_executor = ActionExecutor(self.target_window)
+        self.action_executor = ActionExecutor()
+        # 注入 clicker 引用到 action_executor，以便执行器能读取运行时配置（例如 move_mouse）
+        try:
+            self.action_executor.clicker = self.clicker
+        except Exception:
+            pass
         self.action_manager = ActionScriptManager(get_app_dir() / "data")
         self.hotkey_listener = GlobalHotkeyListener()
         self.running = True
         self.listening = False  # 标记是否在监听热键
-        self.clicker.set_focus_callback(self._ensure_click_target_foreground)
-        self.logger.info("连点器管理器已初始化")
+        # 倒计时状态：当程序/脚本在短暂倒计时后启动时，设置为结束时间戳
+        self.countdown_end: float | None = None
+        self.countdown_label: str | None = None
+        # 当前脚本会话信息（供 GUI 查询）
+        self.current_script_name: str | None = None
+        self.script_running: bool = False
+        self.script_paused: bool = False
+        self._script_session_lock = threading.Lock()
+        self._script_session_thread: threading.Thread | None = None
+        self._script_session_stop_event: threading.Event | None = None
+        self._script_session_pause_event: threading.Event | None = None
 
-    def _ensure_click_target_foreground(self) -> bool:
-        """连点时的前台守护：若已绑定窗口则尝试保持目标窗口在前台。"""
-        if not self.target_window.is_bound():
-            return True
-        activated = self.target_window.activate()
-        if not activated:
-            self.logger.warning("前台守护失败：%s", self.target_window.describe())
-        return activated
+        self.logger.info("连点器管理器已初始化")
 
     def _on_start(self):
         if not self.clicker.running:
             self.logger.info("连点器将在 3 秒后启动，请切换到游戏窗口...")
             print("\n⏳ 连点器将在 3 秒后启动...")
+            # 设置倒计时信息供 GUI 查询
+            try:
+                self.countdown_end = time.time() + 3
+                self.countdown_label = "连点器即将启动"
+            except Exception:
+                self.countdown_end = None
+                self.countdown_label = None
             for countdown in range(3, 0, -1):
                 print(f"   倒计时: {countdown}...")
                 time.sleep(1)
 
-            # 如果已绑定目标窗口，启动前先尝试激活窗口
-            if self.target_window.is_bound():
-                activated = self.target_window.activate()
-                self.logger.info("启动前激活目标窗口: %s | 结果=%s", self.target_window.describe(), activated)
-
+            # 清除倒计时并启动
+            self.countdown_end = None
+            self.countdown_label = None
             self.clicker.start()
             self.logger.info("连点器已启动")
             print("✓ 连点器已启动！")
+        elif self.clicker.is_paused():
+            # 旧的全局定时逻辑已移除，脚本层面的定时请使用 timed 动作
+
+            self.logger.info("连点器将在 3 秒后恢复，请切换到游戏窗口...")
+            print("\n⏳ 连点器将在 3 秒后恢复...")
+            try:
+                self.countdown_end = time.time() + 3
+                self.countdown_label = "连点器将恢复运行"
+            except Exception:
+                self.countdown_end = None
+                self.countdown_label = None
+            for countdown in range(3, 0, -1):
+                print(f"   倒计时: {countdown}...")
+                time.sleep(1)
+
+            self.countdown_end = None
+            self.countdown_label = None
+            if self.clicker.resume():
+                print("▶ 连点器已恢复！")
+
+    
 
     def _on_stop(self):
         if self.clicker.running:
@@ -262,26 +307,50 @@ class ClickerManager:
         self.logger.info("点击间隔: %sms", stats["click_interval"])
         self.logger.info("按压持续时间: %sms", stats["hold_duration"])
         self.logger.info("时间抖动范围: %sms", stats["jitter_range"])
+        # 旧的全局定时模式已废弃，使用脚本层面的 timed 动作
+        self.logger.info("暂停状态: %s", "是" if stats.get("paused") else "否")
         if "duration" in stats:
             self.logger.info("运行时长: %.2f秒", stats["duration"])
             self.logger.info("平均频率: %.2f次/秒", stats["clicks_per_second"])
         self.logger.info("====================================")
 
-    def _countdown_and_activate_target(self, title: str, after_message: str) -> None:
-        """统一的启动倒计时流程。"""
-        print(f"\n⏳ {title}将在 3 秒后启动，请切换到游戏窗口...")
-        for countdown in range(3, 0, -1):
-            print(f"   倒计时: {countdown}...")
-            time.sleep(1)
+    def _stop_active_script_session(self, wait_timeout: float = 5.0) -> bool:
+        """停止当前正在运行的脚本会话，并尽量等待其退出。"""
+        with self._script_session_lock:
+            active_thread = self._script_session_thread
+            stop_event = self._script_session_stop_event
+            pause_event = self._script_session_pause_event
 
-        if self.target_window.is_bound():
-            activated = self.target_window.activate()
-            self.logger.info("启动前激活目标窗口: %s | 结果=%s", self.target_window.describe(), activated)
+        if active_thread is None:
+            return True
 
-        print(after_message)
+        if stop_event is not None:
+            stop_event.set()
+        if pause_event is not None:
+            pause_event.set()
+
+        if active_thread.is_alive() and active_thread is not threading.current_thread():
+            active_thread.join(timeout=wait_timeout)
+
+        alive = active_thread.is_alive()
+        if alive:
+            self.logger.warning("旧脚本会话未能在 %.1f 秒内退出", wait_timeout)
+            return False
+
+        with self._script_session_lock:
+            if self._script_session_thread is active_thread:
+                self._script_session_thread = None
+                self._script_session_stop_event = None
+                self._script_session_pause_event = None
+
+        return True
 
     def _run_script_session(self, script_name: str, actions) -> None:
         """以和连点器类似的方式运行动作脚本。"""
+        if not self._stop_active_script_session():
+            print(f"❌ 旧脚本会话未能及时退出，已取消启动新脚本: {script_name}")
+            return
+
         stop_event = threading.Event()
         pause_event = threading.Event()
         pause_event.set()
@@ -292,17 +361,36 @@ class ClickerManager:
             daemon=True,
         )
 
+        with self._script_session_lock:
+            self._script_session_thread = worker
+            self._script_session_stop_event = stop_event
+            self._script_session_pause_event = pause_event
+
         self.logger.info("脚本将在 3 秒后启动: %s", script_name)
-        self._countdown_and_activate_target(
-            f"脚本 {script_name}",
-            f"✓ 脚本已启动: {script_name}",
-        )
+        print(f"\n⏳ 脚本 {script_name} 将在 3 秒后启动...")
+        # 设置倒计时信息供 GUI 查询
+        try:
+            self.countdown_end = time.time() + 3
+            self.countdown_label = f"脚本 {script_name} 即将启动"
+        except Exception:
+            self.countdown_end = None
+            self.countdown_label = None
+        for countdown in range(3, 0, -1):
+            print(f"   倒计时: {countdown}...")
+            time.sleep(1)
+        # 清除倒计时并启动
+        self.countdown_end = None
+        self.countdown_label = None
+        print(f"✓ 脚本已启动: {script_name}")
+        # 标记脚本会话状态
+        self.current_script_name = script_name
+        self.script_running = True
+        self.script_paused = False
         worker.start()
 
         print("\n【脚本热键】")
         print("  F1  - 继续脚本（暂停后使用，继续前再次等待 3 秒）")
         print("  F2  - 暂停脚本")
-        print("  F4  - 退出脚本并返回菜单")
 
         paused = False
         self.hotkey_listener.start()
@@ -321,6 +409,8 @@ class ClickerManager:
                     if vk_code == VK_F2 and not paused:
                         pause_event.clear()
                         paused = True
+                        # 标记为暂停，供 GUI 查询
+                        self.script_paused = True
                         self.logger.info("脚本已暂停: %s", script_name)
                         print("⏸ 脚本已暂停")
 
@@ -333,20 +423,13 @@ class ClickerManager:
                             print(f"   倒计时: {countdown}...")
                             time.sleep(1)
                         if not stop_event.is_set():
-                            if self.target_window.is_bound():
-                                activated = self.target_window.activate()
-                                self.logger.info("继续前激活目标窗口: %s | 结果=%s", self.target_window.describe(), activated)
                             pause_event.set()
                             paused = False
+                            # 清除暂停标记
+                            self.script_paused = False
                             print("▶ 脚本已继续")
 
-                    elif vk_code == VK_F4:
-                        stop_event.set()
-                        pause_event.set()
-                        self.logger.info("脚本会话已终止: %s", script_name)
-                        print("■ 脚本已终止，返回菜单")
-                        worker.join(timeout=1.0)
-                        return
+                    # F4 已移除：不再通过 F4 退出脚本会话，使用 GUI 按钮或程序逻辑退出
                 except Exception as e:
                     self.logger.error("脚本会话异常: %s", e)
                     stop_event.set()
@@ -354,6 +437,15 @@ class ClickerManager:
                     break
         finally:
             self.hotkey_listener.stop()
+            # 清理脚本会话状态
+            with self._script_session_lock:
+                if self._script_session_thread is worker:
+                    self._script_session_thread = None
+                    self._script_session_stop_event = None
+                    self._script_session_pause_event = None
+                    self.script_running = False
+                    self.script_paused = False
+                    self.current_script_name = None
 
         if stop_event.is_set():
             return
@@ -371,8 +463,6 @@ class ClickerManager:
         print("  F1  - 启动连点器")
         print("  F2  - 停止连点器")
         print("  F3  - 显示统计信息")
-        print("  F4  - 返回菜单")
-        print("  Delete + 0..9 - 游戏内快捷键（Delete+0 切换连点器；Delete+1..9 执行脚本）")
         print("\n【默认参数】")
         print(f"  点击中心位置: ({self.clicker.config.center_x}, {self.clicker.config.center_y})")
         print(f"  随机移动半径: {self.clicker.config.radius}px")
@@ -380,23 +470,17 @@ class ClickerManager:
         print(f"  按压持续时间: {self.clicker.config.hold_duration}ms")
         print(f"  时间抖动范围: {self.clicker.config.jitter_range}ms")
         print(f"  启动时移动鼠标到目标: {getattr(self.clicker.config, 'move_mouse', True)}")
-        print("\n")
-        print(f"【脚本目标窗口】{self.target_window.describe()}")
+        # 全局定时模式已移除，建议使用脚本中的 timed 动作
         print("\n")
 
     def interactive_config(self):
         """交互式配置。"""
         while True:
             print("\n【参数调整】(输入数字选择)")
-            print("  1 - 设置点击中心位置")
-            print("  2 - 设置随机移动半径")
-            print("  3 - 设置点击间隔")
-            print("  4 - 设置按压持续时间")
-            print("  5 - 设置时间抖动范围")
             print("  6 - 加载配置预设")
             print("  7 - 管理已保存的配置")
             print("  8 - 动作脚本管理（创建/执行/删除脚本）")
-            print("  9 - 绑定目标窗口（NRC-Win64-Shipping.exe）")
+            
             print("  0 - 开始监听热键")
             print("  m - 切换是否在每次点击前移动鼠标")
             print("  直接回车 - 进入热键监听")
@@ -405,49 +489,7 @@ class ClickerManager:
             if not choice or choice == "0":
                 return
 
-            if choice == "1":
-                try:
-                    x = int(input("请输入点击中心X坐标: "))
-                    y = int(input("请输入点击中心Y坐标: "))
-                    self.clicker.config.center_x = x
-                    self.clicker.config.center_y = y
-                    ConfigManager.save_config(self.clicker.config, "default")
-                    print(f"✓ 点击中心已设置为 ({x}, {y})")
-                except ValueError:
-                    print("❌ 输入错误")
-            elif choice == "2":
-                try:
-                    radius = int(input("请输入随机移动半径(像素): "))
-                    self.clicker.config.radius = radius
-                    ConfigManager.save_config(self.clicker.config, "default")
-                    print(f"✓ 随机半径已设置为 {radius}px")
-                except ValueError:
-                    print("❌ 输入错误")
-            elif choice == "3":
-                try:
-                    interval = int(input("请输入点击间隔(毫秒): "))
-                    self.clicker.config.click_interval = interval
-                    ConfigManager.save_config(self.clicker.config, "default")
-                    print(f"✓ 点击间隔已设置为 {interval}ms")
-                except ValueError:
-                    print("❌ 输入错误")
-            elif choice == "4":
-                try:
-                    duration = int(input("请输入按压持续时间(毫秒): "))
-                    self.clicker.config.hold_duration = duration
-                    ConfigManager.save_config(self.clicker.config, "default")
-                    print(f"✓ 按压持续时间已设置为 {duration}ms")
-                except ValueError:
-                    print("❌ 输入错误")
-            elif choice == "5":
-                try:
-                    jitter = int(input("请输入时间抖动范围(毫秒): "))
-                    self.clicker.config.jitter_range = jitter
-                    ConfigManager.save_config(self.clicker.config, "default")
-                    print(f"✓ 时间抖动范围已设置为 {jitter}ms")
-                except ValueError:
-                    print("❌ 输入错误")
-            elif choice == "6":
+            if choice == "6":
                 self.load_config_menu()
             elif choice.lower() == 'm':
                 cur = getattr(self.clicker.config, 'move_mouse', True)
@@ -458,8 +500,7 @@ class ClickerManager:
                 self.manage_configs_menu()
             elif choice == "8":
                 self.action_script_menu()
-            elif choice == "9":
-                self._bind_target_window_menu()
+            # 已移除绑定目标窗口的交互菜单，改用脚本或手动绑定
             else:
                 self.logger.warning("选择无效，请重新输入")
 
@@ -590,58 +631,9 @@ class ClickerManager:
                     print("❌ 输入错误")
                 continue
 
-    def _bind_target_window_menu(self):
-        """目标窗口绑定菜单。"""
-        print(f"\n正在查询进程 '{self.target_process_name}' 的窗口...")
-        windows = list_windows_for_process(self.target_process_name)
-        
-        if not windows:
-            print(f"未找到进程 '{self.target_process_name}' 的窗口")
-            return
-        
-        print("找到以下窗口:")
-        for i, (hwnd, title) in enumerate(windows, 1):
-            print(f"  {i}. {title} (hwnd={hwnd})")
-        
-        try:
-            choice = input("请选择窗口编号 (按 Enter 取消): ").strip()
-            if not choice:
-                return
-            
-            idx = int(choice) - 1
-            if 0 <= idx < len(windows):
-                hwnd, title = windows[idx]
-                self.target_window.bind(hwnd)
-                print(f"✓ 已绑定窗口: {title}")
-            else:
-                print("❌ 编号无效")
-        except ValueError:
-            print("❌ 输入错误")
+    # 目标窗口绑定交互已移除（使用脚本或手动绑定目标窗口）
 
-    def _on_delete_number(self, number: int):
-        """Delete + 0..9 快捷键处理"""
-        if number == 0:
-            # Delete+0: 切换连点器
-            if self.clicker.running:
-                self._on_stop()
-            else:
-                self._on_start()
-        else:
-            # Delete+1..9: 执行对应脚本
-            script_name = f"script_{number}"
-            scripts = self.action_manager.list_scripts()
-            
-            if script_name in scripts:
-                actions = self.action_manager.load_script(script_name)
-                if actions:
-                    self.logger.info("执行脚本: %s", script_name)
-                    threading.Thread(
-                        target=self.action_executor.execute_sequence,
-                        args=(actions,),
-                        daemon=True
-                    ).start()
-            else:
-                self.logger.warning("脚本不存在: %s", script_name)
+    # Delete + 0..9 快捷键处理已移除（GUI 操作替代）
 
     def listen_hotkeys(self):
         """监听热键。"""
@@ -650,9 +642,6 @@ class ClickerManager:
 
         self.hotkey_listener.start()
         self.hotkey_listener.clear()
-
-        delete_pressed = False
-
         try:
             while self.listening:
                 try:
@@ -661,10 +650,6 @@ class ClickerManager:
                         continue
 
                     event_type, vk_code = event
-
-                    if vk_code == VK_DELETE:
-                        delete_pressed = event_type == "down"
-                        continue
 
                     if event_type != "down":
                         continue
@@ -681,12 +666,7 @@ class ClickerManager:
                         self._on_stats()
                         continue
 
-                    if vk_code == VK_F4:
-                        self._on_exit()
-                        break
-
-                    if delete_pressed and VK_0 <= vk_code <= VK_9:
-                        self._on_delete_number(vk_code - VK_0)
+                    # F4 与 Delete+数字 快捷键已移除；所有脚本管理请使用 GUI 控件或命令行接口。
 
                 except Exception as e:
                     self.logger.error("热键监听异常: %s", e)
@@ -739,6 +719,23 @@ class ClickerManager:
 def main():
     """主入口"""
     try:
+        parser = argparse.ArgumentParser(description="RocoKingdom Clicker")
+        parser.add_argument('--gui', action='store_true', help='启动图形界面')
+        args = parser.parse_args()
+        # 如果是打包后的可执行文件（frozen），默认打开 GUI 窗口以匹配发布版行为
+        if getattr(sys, 'frozen', False) and not args.gui:
+            args.gui = True
+
+        if args.gui:
+            # 延迟导入 GUI，以避免在非 GUI 模式下引入额外依赖
+            try:
+                import gui
+                gui.start_gui()
+                return
+            except Exception as e:
+                logging.error("启动 GUI 失败: %s", e)
+                # 回退到 CLI 模式
+
         manager = ClickerManager()
         manager.run()
     except Exception as e:

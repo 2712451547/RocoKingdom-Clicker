@@ -103,7 +103,6 @@ class ConfigManager:
                     config.hold_duration = data['hold_duration']
                 if 'jitter_range' in data:
                     config.jitter_range = data['jitter_range']
-                
                 cls.logger.info("配置已从 %s 加载", config_file)
             except Exception as e:
                 cls.logger.warning("加载配置失败: %s，使用默认配置", e)

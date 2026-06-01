@@ -23,7 +23,11 @@ echo         Powered by Interception
 echo ========================================
 echo.
 
-set "PYTHON_EXE=%~dp0.venv\Scripts\python.exe"
+set "PYTHON_EXE=%~dp0.venv\Scripts\pythonw.exe"
+
+if not exist "%PYTHON_EXE%" (
+    set "PYTHON_EXE=%~dp0.venv\Scripts\python.exe"
+)
 
 if not exist "%PYTHON_EXE%" (
     echo Local virtual environment not found.
@@ -54,7 +58,7 @@ echo Please wait...
 echo ========================================
 echo.
 
-"%PYTHON_EXE%" Clicker.py
+"%PYTHON_EXE%" Clicker.py --gui
 
 if errorlevel 1 (
     color 0C
@@ -87,7 +91,7 @@ echo.
 echo Launching bundled release executable...
 echo.
 
-"%~dp0RocoKingdom_Clicker.exe"
+"%~dp0RocoKingdom_Clicker.exe" --gui
 
 if errorlevel 1 (
     color 0C

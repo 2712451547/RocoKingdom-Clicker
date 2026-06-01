@@ -23,7 +23,6 @@ user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32
 
 MAX_PATH = 260
-TH32CS_SNAPPROCESS = 0x00000002
 SW_RESTORE = 9
 SW_SHOW = 5
 INPUT_KEYBOARD = 1
@@ -240,130 +239,34 @@ class LoopAction:
         return asdict(self)
 
 
-def find_process_by_name(process_name: str) -> int:
-    """按进程名查找 PID"""
-    snapshot = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
-    try:
-        entry = PROCESSENTRY32W()
-        entry.dwSize = ctypes.sizeof(PROCESSENTRY32W)
-        
-        if kernel32.Process32FirstW(snapshot, ctypes.byref(entry)):
-            while True:
-                if process_name.lower() in entry.szExeFile.lower():
-                    return entry.th32ProcessID
-                if not kernel32.Process32NextW(snapshot, ctypes.byref(entry)):
-                    break
-    finally:
-        kernel32.CloseHandle(snapshot)
-    
-    return None
+@dataclass
+class TimedAction:
+    """定时包裹动作：在执行窗口内重复运行内部 actions，然后休眠。"""
+    actions: List[Any] = field(default_factory=list)
+    execute_ms: int = 0
+    sleep_ms: int = 0
+    repeat: int = 1
+    forever: bool = False
 
-
-def list_windows_for_process(process_name: str) -> List[tuple]:
-    """列出进程所有窗口 (hwnd, window_title)"""
-    pid = find_process_by_name(process_name)
-    if not pid:
-        return []
-    
-    windows = []
-    
-    def enum_callback(hwnd, _):
-        try:
-            tid = wintypes.DWORD()
-            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(tid))
-            if tid.value == pid:
-                title_buf = ctypes.create_unicode_buffer(256)
-                user32.GetWindowTextW(hwnd, title_buf, 256)
-                windows.append((hwnd, title_buf.value))
-        except Exception:
-            pass
-        return True
-    
-    EnumWindowsProc = ctypes.CFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
-    user32.EnumWindowsW(EnumWindowsProc(enum_callback), None)
-    
-    return windows
-
-
-class TargetWindowBinding:
-    """目标窗口绑定管理"""
-    
-    def __init__(self, process_name: str):
-        self.process_name = process_name
-        self.hwnd: Optional[int] = None
-        self.logger = logging.getLogger("target_window")
-    
-    def bind(self, hwnd: int) -> bool:
-        """绑定窗口"""
-        self.hwnd = hwnd
-        self.logger.info("已绑定窗口: %s (hwnd=%d)", self._get_title(), hwnd)
-        return True
-    
-    def is_bound(self) -> bool:
-        """检查是否已绑定"""
-        return self.hwnd is not None
-    
-    def activate(self) -> bool:
-        """激活目标窗口（多步激活流程）"""
-        if not self.is_bound():
-            return False
-        
-        try:
-            # 1. 获取目标线程和前台线程
-            target_tid = wintypes.DWORD()
-            user32.GetWindowThreadProcessId(self.hwnd, ctypes.byref(target_tid))
-            foreground_hwnd = user32.GetForegroundWindow()
-            foreground_tid = user32.GetWindowThreadProcessId(foreground_hwnd, None)
-            
-            # 2. 如果不同线程，尝试 AttachThreadInput
-            if foreground_tid != target_tid.value:
-                user32.AttachThreadInput(foreground_tid, target_tid.value, True)
-                time.sleep(0.05)
-            
-            # 3. 将窗口置顶并激活
-            user32.BringWindowToTop(self.hwnd)
-            user32.SetForegroundWindow(self.hwnd)
-            user32.SetActiveWindow(self.hwnd)
-            time.sleep(0.05)
-            
-            # 4. 分离线程
-            if foreground_tid != target_tid.value:
-                user32.AttachThreadInput(foreground_tid, target_tid.value, False)
-            
-            self.logger.debug("目标窗口激活成功")
-            return True
-        
-        except Exception as e:
-            self.logger.error("激活目标窗口失败: %s", e)
-            return False
-    
-    def _get_title(self) -> str:
-        """获取窗口标题"""
-        if not self.is_bound():
-            return "(未绑定)"
-        try:
-            buf = ctypes.create_unicode_buffer(256)
-            user32.GetWindowTextW(self.hwnd, buf, 256)
-            return buf.value
-        except Exception:
-            return "(获取标题失败)"
-    
-    def describe(self) -> str:
-        """描述窗口信息"""
-        return f"{self.process_name}:{self._get_title()}"
+    def to_dict(self) -> dict:
+        return asdict(self)
 
 
 class ActionExecutor:
     """动作执行器 - 基于 Interception 驱动"""
     
-    def __init__(self, target_window: TargetWindowBinding):
-        self.target_window = target_window
+    def __init__(self):
         self.logger = logging.getLogger("action_executor")
         
         # 加载 Interception 库
         self._lib = None
         self._ctx = None
         self._device = None
+        # 引用外部 clicker（由 ClickerManager 注入），用于读取运行时配置
+        self.clicker = None
+        # 记录被忽略的移动操作次数（当全局 move_mouse 被禁用时）
+        self.ignored_moves = 0
+        self._ignored_lock = threading.Lock()
         self._initialize_interception()
     
     def _initialize_interception(self):
@@ -482,19 +385,32 @@ class ActionExecutor:
     
     def _execute_click(self, action: ClickAction) -> None:
         """执行点击"""
-        # 移动
-        target_x = self._apply_jitter(action.x, action.x_jitter_px)
-        target_y = self._apply_jitter(action.y, action.y_jitter_px)
-        abs_x, abs_y = self._screen_to_interception(target_x, target_y)
-        stroke = InterceptionMouseStroke()
-        stroke.state = 0
-        stroke.flags = 0x001  # absolute
-        stroke.rolling = 0
-        stroke.x = abs_x
-        stroke.y = abs_y
-        stroke.information = 0
-        self._send_mouse_stroke(stroke)
-        time.sleep(0.02)
+        # 根据全局配置决定是否移动鼠标
+        move_allowed = True
+        try:
+            if getattr(self, 'clicker', None) is not None:
+                move_allowed = bool(getattr(self.clicker.config, 'move_mouse', True))
+        except Exception:
+            move_allowed = True
+
+        if move_allowed:
+            # 移动
+            target_x = self._apply_jitter(action.x, action.x_jitter_px)
+            target_y = self._apply_jitter(action.y, action.y_jitter_px)
+            abs_x, abs_y = self._screen_to_interception(target_x, target_y)
+            stroke = InterceptionMouseStroke()
+            stroke.state = 0
+            stroke.flags = 0x001  # absolute
+            stroke.rolling = 0
+            stroke.x = abs_x
+            stroke.y = abs_y
+            stroke.information = 0
+            self._send_mouse_stroke(stroke)
+            time.sleep(0.02)
+        else:
+            # 不移动，但记录被忽略的移动次数，随后仍然执行按下/释放以在当前位置点击
+            with self._ignored_lock:
+                self.ignored_moves += 1
         
         # 按下
         stroke = InterceptionMouseStroke()
@@ -516,10 +432,27 @@ class ActionExecutor:
         stroke.information = 0
         self._send_mouse_stroke(stroke)
         
-        self.logger.debug("点击 (%d, %d)", target_x, target_y)
+        if move_allowed:
+            self.logger.debug("点击 (%d, %d)", target_x, target_y)
+        else:
+            self.logger.debug("点击（忽略移动，当前位置点击）")
     
     def _execute_move(self, action: MoveAction) -> None:
         """执行移动"""
+        # 如果全局配置关闭鼠标移动，则忽略此移动动作
+        move_allowed = True
+        try:
+            if getattr(self, 'clicker', None) is not None:
+                move_allowed = bool(getattr(self.clicker.config, 'move_mouse', True))
+        except Exception:
+            move_allowed = True
+
+        if not move_allowed:
+            with self._ignored_lock:
+                self.ignored_moves += 1
+            self.logger.debug("移动指令已被忽略（move_mouse=False）")
+            return
+
         target_x = self._apply_jitter(action.x, action.x_jitter_px)
         target_y = self._apply_jitter(action.y, action.y_jitter_px)
         abs_x, abs_y = self._screen_to_interception(target_x, target_y)
@@ -598,6 +531,53 @@ class ActionExecutor:
         time.sleep(duration_ms / 1000.0)
         self.logger.debug("等待 %dms", duration_ms)
 
+    def _execute_timed(self, action: TimedAction, stop_event: Optional[threading.Event], pause_event: Optional[threading.Event]) -> bool:
+        """执行 TimedAction：在 execute_ms 窗口内重复运行内部 actions，然后休眠 sleep_ms。"""
+        exec_seconds = max(0, action.execute_ms) / 1000.0
+        sleep_seconds = max(0, action.sleep_ms) / 1000.0
+
+        def run_one_window() -> bool:
+            # 执行窗口开始
+            end_time = time.time() + exec_seconds
+            while time.time() < end_time:
+                if stop_event and stop_event.is_set():
+                    return False
+
+                # 如果暂停，则等待并延长 end_time
+                if pause_event is not None and not pause_event.is_set():
+                    paused_at = time.time()
+                    if not self._wait_until_ready(stop_event, pause_event):
+                        return False
+                    resumed_at = time.time()
+                    # 延长执行窗口
+                    end_time += (resumed_at - paused_at)
+                    continue
+
+                # 执行一次内部动作序列
+                if not self._execute_actions(action.actions, stop_event, pause_event):
+                    return False
+                # 如果内部动作耗时较长，loop 会自然超过窗口；下一次循环会检查时间
+            return True
+
+        iteration = 0
+        while action.forever or iteration < max(1, int(action.repeat)):
+            if stop_event and stop_event.is_set():
+                return False
+            if not self._wait_until_ready(stop_event, pause_event):
+                return False
+
+            if exec_seconds > 0:
+                if not run_one_window():
+                    return False
+
+            # 进入可中断睡眠
+            if sleep_seconds > 0:
+                if not self._sleep_with_controls(sleep_seconds, stop_event, pause_event):
+                    return False
+
+            iteration += 1
+        return True
+
     def _wait_until_ready(
         self,
         stop_event: Optional[threading.Event],
@@ -670,6 +650,9 @@ class ActionExecutor:
                 self._execute_key(action)
             elif isinstance(action, ComboAction):
                 self._execute_combo(action)
+            elif isinstance(action, TimedAction):
+                if not self._execute_timed(action, stop_event, pause_event):
+                    return False
             elif isinstance(action, WaitAction):
                 if not self._sleep_with_controls(action.duration_ms / 1000.0, stop_event, pause_event):
                     return False
@@ -683,12 +666,6 @@ class ActionExecutor:
         pause_event: Optional[threading.Event] = None,
     ) -> bool:
         """执行动作序列"""
-        if self.target_window.is_bound():
-            if not self.target_window.activate():
-                self.logger.warning("无法激活目标窗口")
-                return False
-            time.sleep(0.1)
-        
         try:
             return self._execute_actions(actions, stop_event, pause_event)
         except Exception as e:
@@ -770,6 +747,20 @@ class ActionScriptManager:
                 forever=forever,
                 pause_ms=int(item.get("pause_ms", 0)),
                 pause_jitter_ms=int(item.get("pause_jitter_ms", 0)),
+            )
+        if action_type == "timed":
+            nested = [self._parse_action(sub_item) for sub_item in item.get("actions", [])]
+            nested = [action for action in nested if action is not None]
+            execute_ms = int(item.get("execute_ms", 0))
+            sleep_ms = int(item.get("sleep_ms", 0))
+            repeat = int(item.get("repeat", 1))
+            forever = bool(item.get("forever", False))
+            return TimedAction(
+                actions=nested,
+                execute_ms=execute_ms,
+                sleep_ms=sleep_ms,
+                repeat=repeat,
+                forever=forever,
             )
         self.logger.warning("未知动作类型: %s", action_type)
         return None

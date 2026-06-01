@@ -1,167 +1,169 @@
-# RocoKingdom Clicker
+# RocoKingdom 连点器（RocoKingdom Clicker）
 
-在洛克王国：世界游戏中，**大量出没活动**刷新的精灵点位是固定的，可以通过不移动位置连续扔球实现捕捉，但这个过程非常乏味且单一。
+本项目用于在《洛克王国：世界》中自动执行重复、固定的鼠标/按键动作，以减少玩家手动重复操作的负担。
 
-因此，可以通过 “寻找一个安全的站位 -> 连续触发捕捉动作” 来简化这个过程的操作成本，本项目 **洛克王国连点器** 就是为了实现这个目的创建的。
+> 请注意：使用自动化工具存在被封禁的风险，使用者须自行承担风险与后果。
 
-需要说明的是，本项目为本人为学习编程而编写的项目，无任何商业盈利行为，可能涉及到官方封禁的风险，请酌情使用。若账号被封禁，本人无任何责任。
+## 启动与运行
 
-## 交流群
+### 前置步骤
 
-如果有需求或疑问，可以扫码加入群聊：
+按照 [说明](docs/DRIVER_INSTALLATION.md) 安装驱动。
 
-<div align="center">
-<img src="docs/pic/support.png" alt="QQ群二维码" width="200">
-</div>
+### 使用发布包运行
 
-## 你需要做什么
+下载并解压发布包后，双击 `run_clicker.vbs` 来启动。该 VBS 会在需要时弹出 UAC 提示以提升权限，确认后程序以静默窗口（无控制台）方式运行，适合普通最终用户。
 
-需要首先安装 python 环境，接着：
+### 开发与调试（源码运行）
 
-1. 先按 [DRIVER_INSTALLATION.md](./docs/DRIVER_INSTALLATION.md) 安装 Interception 驱动，将编译得到的 DLL 复制到本项目的根目录，然后重启电脑
-2. 双击 `run_clicker.bat` 启动程序，然后输入数字 0 并回车，进入连点器监控页面
-3. 进入游戏
-4. 在游戏内，按 `F1` 启动连点器（会同时开启赛季页面，立刻按`ESC`退出）
-5. 3秒后连点开始
-6. 想停止时，在游戏内按 `F2` 即可
+当你需要修改代码、调试或查看详细日志时，使用源码运行：
 
-热键监听现在使用的是全局键盘钩子，只记录按键事件，不会拦截按键本身，所以游戏原本的热键功能仍然会保留。
+```bat
+python Clicker.py --gui
+```
 
-## 启动方式
-
-推荐直接运行：
+备用（会显示控制台）：
 
 ```bat
 run_clicker.bat
 ```
 
-这个脚本会自动申请管理员权限，并根据当前目录自动选择运行模式：
+开发运行注意事项：
 
-- 有 `RocoKingdom_Clicker.exe` 时，直接启动发布包
-- 没有 `RocoKingdom_Clicker.exe` 时，创建本地 `.venv` 并启动 `Clicker.py`
+- 需要在运行机器上安装 Python（推荐 3.10）。
 
-## 发布打包
+### 执行脚本
 
-如果你要生成发布包，直接运行根目录下的 `build_release.bat` 即可：
+![界面说明](docs\pic\9.png)
+
+上图为软件的用户界面：
+
+- 列表：显示 `data/action_scripts/` 下的脚本文件，点击脚本会立即更新左侧“当前选择脚本”标签。
+- 按钮：`启动 / 停止`、`执行脚本`、`删除脚本`、`切换 move_mouse`。
+- 状态：状态栏会显示运行状态（如脚本运行中、脚本已暂停、倒计时等）；“当前选择脚本”栏只显示脚本名。
+
+你可以通过热键来启动或暂停脚本：
+- `F2`：暂停脚本（状态栏显示“脚本已暂停”）。
+- `F1`：继续（继续前会再次等待 3 秒倒计时）。
+
+注意：热键监听使用全局键盘钩子（WH_KEYBOARD_LL），记录按键事件但不拦截原按键，因此游戏的原生按键功能仍然保留。
+
+## 脚本系统
+- 脚本文件位于 `data/action_scripts/`，请按 `SCRIPT_RULES.md` 的格式编写动作序列。
+- 新增动作类型：`timed`，用于在脚本内部指定“运行时长后停止/退出”或其它定时条件。
+- 支持动作类型：`click`, `move`, `key`, `combo`, `wait`, `loop`, `timed`。
+- 类人化选项（抖动）：`x_jitter_px`, `y_jitter_px`, `hold_jitter_ms`, `duration_jitter_ms`, `pause_jitter_ms`。
+
+行为细节：
+- 全局 `move_mouse` 配置控制 `click` 是否移动鼠标；若 `move_mouse=false`，`click` 只发送按下/释放事件，不会移动鼠标；GUI 中会显示 `ignored_moves`（因全局禁止而被忽略的移动次数）。
+
+示例（简要）：
+
+```json
+{
+  "name": "example_loop",
+  "actions": [
+    {"type": "loop", "count": 0, "actions": [
+      {"type": "move", "x": 900, "y": 500, "duration_ms": 120},
+      {"type": "click", "x": 900, "y": 500, "hold_ms": 80},
+      {"type": "wait", "duration_ms": 300}
+    ]}
+  ]
+}
+```
+
+更多示例与规范请参阅 `data/action_scripts/SCRIPT_RULES.md`。
+
+仓库内示例脚本概览
+
+以下为 `data/action_scripts/` 目录下自带脚本的简要说明，便于快速理解和测试：
+
+- `click.json` (`script_0`)
+  - 说明：基于 `timed` 的周期性点击示例。每个执行窗口（60s）内不断执行一次点击+短等待，然后休眠 1s 后重复（`forever: true`）。包含坐标抖动与按压抖动，模拟更类人的点击行为。
+  - 用途：适合需要周期性短时连续点击的场景。通过 GUI 选择并执行该脚本。
+
+- `loop.json` (`script_1`)
+  - 说明：无限循环的基础连点示例。每轮移动到固定坐标、点击并等待 300ms，`count:0` 表示一直循环直到用户停止脚本（通过 GUI 停止）。
+  - 用途：用于持续的单点点击循环测试或替代简单连点器行为。
+
+- `move_wasd_circle.json` (`move_wasd_circle`)
+  - 说明：通过 `combo` 动作模拟 WASD 转圈（W+D, D+S, S+A, A+W）并在每步加入等待与抖动，适合需要持续移动的场景（例如游戏内挂机移动）。
+  - 用途：测试键盘组合动作、移动类脚本或自动走位场景。
+
+- `space_interval.json` (`space_interval`)
+  - 说明：按空格键（VK 32）并定期等待约 1.5s 的循环示例，带微小抖动。用于需要定期按键触发的场景（例如间隔触发技能/互动）。
+  - 用途：节奏型按键测试或模拟周期性空格输入场景。
+
+- `timed_example.json` (`timed_example`)
+  - 说明：`timed` 示例：执行窗口 5s、休眠 2s、重复 2 次；在每个执行窗口内以 `loop` 连续点击并等待，用于展示 `timed` 的基本用法。
+  - 用途：学习如何使用 `timed` 包装器实现“工作窗口 + 休眠窗口”的运行模式。
+
+使用提示：在 GUI 中可以直接选择并运行上述脚本；脚本触发的热键已简化，请使用界面按钮或脚本列表来执行脚本。
+
+详细动作说明（快速参考）
+
+- `click`：移动到 `(x,y)` 并单次点击。
+  - 字段：`type: "click"`, `x`, `y`, 可选 `hold_ms`（默认 ~100ms）。
+  - 注意：当全局 `move_mouse=false` 时，仅发送按下/释放事件，不移动鼠标。
+
+- `move`：移动到 `(x,y)`，不点击。
+  - 字段：`type: "move"`, `x`, `y`, 可选 `duration_ms`（移动耗时，默认 ~100ms）。
+
+- `key`：按下并释放单键。
+  - 字段：`type: "key"`, `vk_code`（虚拟键码）, 可选 `hold_ms`（默认 ~50ms）。
+
+- `combo`：同时按下一组按键（用于 WASD 转圈等）。
+  - 字段：`type: "combo"`, `vk_codes`（数组）, 可选 `hold_ms`, `hold_jitter_ms`。
+
+- `wait`：静默等待。
+  - 字段：`type: "wait"`, `duration_ms`, 可选 `duration_jitter_ms`。
+
+- `loop`：循环执行一组动作。
+  - 字段：`type: "loop"`, `actions`（数组）, `count`（次数），或 `forever: true` 表示无限循环直到用户停止脚本（通过 GUI 停止）。
+  - 可选 `pause_ms` 与 `pause_jitter_ms` 控制每轮间隔。
+
+- `timed`：在“执行窗口”内重复运行一组动作，窗口到期后进入休眠，再根据 `repeat`/`forever` 决定是否重试。
+  - 字段：`type: "timed"`, `execute_ms`（执行窗口 ms）, `sleep_ms`（休眠 ms）, `actions`（在执行窗口内的动作数组），可选 `repeat` 或 `forever`。
+  - 行为要点：执行窗口计时会在脚本被 `F2` 暂停时暂停；若某次内部动作超出窗口，动作会完成后再判断是否到期。
+
+快速示例（timed）：
+
+```json
+{
+  "type": "timed",
+  "execute_ms": 300000,
+  "sleep_ms": 300000,
+  "forever": true,
+  "actions": [
+    { "type": "click", "x": 900, "y": 500, "hold_ms": 80 },
+    { "type": "wait", "duration_ms": 100 }
+  ]
+}
+```
+
+编写建议：
+- 把常驻流程放入 `loop`（`count:0` 或 `forever:true`），便于通过 GUI 停止或脚本内部条件结束（`timed`）。
+- 需要快速触发的流程，请在 GUI 中将其放在显著位置并使用“执行”按钮进行触发。
+
+更多完整字段与示例请参阅仓库：`data/action_scripts/SCRIPT_RULES.md`。
+
+## 打包与发布
+- 生成发布包：在项目根目录运行：
 
 ```bat
 .\build_release.bat
 ```
 
-打包脚本会自动探测可用的全局 Python，安装 PyInstaller，执行 `onedir` 打包，并把 `interception.dll`、`run_clicker.bat`、`README.md` 以及下面这些运行数据一并放进发布目录，最后生成：
+- 构建脚本要点：使用 `PyInstaller --onedir --windowed` 生成无控制台窗口的发布目录，并把 `run_clicker.vbs` 复制进 `dist\\RocoKingdom_Clicker`，便于用户双击启动（同时包含示例脚本与默认配置）。
 
-- `release/RocoKingdom_Clicker.zip`
+## 调试与常见问题
+- 如果在游戏中无法捕获热键，请以**管理员身份**重启 `run_clicker.vbs`（VBS 已支持弹出 UAC 提示以提升权限）。
+- 要查看详细日志，可在开发模式下运行 `python Clicker.py`（不加 `--gui`）以输出控制台日志。
 
-另外，发布包会明确带上下面这些运行数据，方便直接使用示例脚本和默认配置：
+## 更新日志与贡献
+- 本次详细变更记录请见：[docs/changelog/2026-05-31.md](docs/changelog/2026-05-31.md)
+- 欢迎提交 issue 或 PR，描述你的使用场景与复现步骤。
 
-- `data/action_scripts/`
-- `data/clicker_configs/default.json`
+---
 
-脚本默认会在可用的 Python 解释器里按以下顺序探测：
-
-1. `py -3.10`
-2. `py -3`
-3. `python`
-4. `%LocalAppData%\Programs\Python\Python310\python.exe`
-
-## 项目文件
-
-- `Clicker.py`：主程序和菜单
-- `InterceptionCore.py`：点击核心
-- `ActionScript.py`：动作脚本系统
-- `ConfigManager.py`：配置保存与加载
-- `run_clicker.bat`：正式启动脚本
-- `build_release.bat`：正式发布打包脚本
-
-## 多步动作脚本
-
-脚本现在支持多步动作，不再局限于单个点击。你可以在菜单里进入“动作脚本管理”，查看、执行或删除脚本，但脚本内容需要直接在 `data/action_scripts/` 目录下编写。
-
-### 使用方式
-
-1. 启动程序后输入 `0`，进入热键监听前的主菜单。
-2. 选择 `8` 打开“动作脚本管理”。
-3. 直接在 `data/action_scripts/` 目录下编写或修改脚本 JSON 文件。
-4. 按 `SCRIPT_RULES.md` 的规则组织动作序列。
-5. 保存后就可以在脚本列表里选择执行，或直接用 `Delete+1~9` 触发对应脚本。
-
-### 脚本编写位置
-
-脚本不再通过菜单创建，而是直接编辑下面这个目录里的 JSON 文件：
-
-- `data/action_scripts/script_1.json`
-- `data/action_scripts/script_2.json`
-- 其他自定义脚本文件
-
-详细格式和约定请看 [SCRIPT_RULES.md](data/action_scripts/SCRIPT_RULES.md)。
-
-### 脚本会话控制
-
-选择脚本后，会进入脚本会话模式：
-
-- `F2` 暂停脚本
-- `F1` 继续脚本，继续前会再次等待 3 秒
-- `F4` 退出脚本并返回菜单
-
-开始执行或继续执行前，程序都会给出 3 秒倒计时，方便你切回游戏窗口。
-
-### 支持的动作类型
-
-- `click`：移动到指定坐标并点击一次（若全局设置 `move_mouse=false`，则不会移动鼠标，仅在当前鼠标位置发送按下/释放事件）
-- `move`：移动到指定坐标，不点击
-- `key`：按下并释放一个虚拟键码
-- `combo`：同时按下多个虚拟键码，适合 WASD 转圈或斜向移动
-- `wait`：暂停指定毫秒数
-- `loop`：循环执行一组动作，`count=0` 或 `forever=true` 表示一直循环到按 `F4`
-
-注意：程序默认不会在每次点击前移动鼠标（全局设置 `move_mouse` 默认为 false）。
-当 `move_mouse=false` 时，`click` 动作只会发送按下/释放事件，作用于当前鼠标位置；
-如需切换，可在主菜单按 `m` 切换，或编辑配置文件 `data/clicker_configs/default.json` 中的 `move_mouse` 字段。
-
-### 类人化选项
-
-脚本里可以额外加随机扰动字段，让动作更像真人输入：
-
-- `x_jitter_px`、`y_jitter_px`：坐标抖动
-- `hold_jitter_ms`：按住时间抖动
-- `duration_jitter_ms`：持续时间抖动
-- `pause_jitter_ms`：循环间隔抖动
-
-### 示例脚本
-
-脚本文件保存在 `data/action_scripts/` 目录下，文件名格式通常是 `script_1.json`、`script_2.json`。
-
-如果你要一个直接可用的 WASD 转圈脚本，可以参考 [move_wasd_circle.json](data/action_scripts/move_wasd_circle.json)。
-
-```json
-{
-	"name": "script_1",
-	"actions": [
-		{"type": "loop", "count": 0, "actions": [
-			{"type": "move", "x": 900, "y": 500, "duration_ms": 120},
-			{"type": "click", "x": 900, "y": 500, "hold_ms": 80},
-			{"type": "wait", "duration_ms": 300}
-		]}
-	]
-}
-```
-
-上面这个写法就是“把连点器直接写成一个脚本”的标准形式。只要把动作放进 `loop` 里，脚本就会一直执行，直到你按 `F4`。
-
-如果你想限定次数，可以把 `count` 改成具体数字，比如 `count: 20` 表示循环 20 次。
-
-WASD 转圈脚本推荐使用 `combo` 动作，例如 `W+D`、`D+S`、`S+A`、`A+W` 轮流执行，再配合 `hold_jitter_ms` 和 `pause_jitter_ms`。
-
-### 适合什么场景
-
-- 先移动到固定位置，再连续点击
-- 点击后等待一段时间，再执行下一步
-- 插入按键动作作为中间步骤
-- 组合成重复的固定流程，减少手动操作
-- 把整套连点流程封装成一个常驻脚本
-
-## 鸣谢
-
-[洛克王国：世界--MAA](https://github.com/krendluck/lkwg) - 该项目首次采用 Interception 作为游戏控制的输入，启发了本项目。
-
-[Interception](https://github.com/oblitum/Interception) - 输入设备拦截与控制 API，本项目用于绕过游戏输入保护
+> 风险提示：本工具可能会违反游戏使用条款或遭受反作弊检测。请仅在你愿意承担风险的情况下使用。

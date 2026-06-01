@@ -61,6 +61,7 @@ class ClickerConfig:
         self.click_interval = 500
         self.hold_duration = 800
         self.jitter_range = 200
+        
 
 
 class InterceptionCore:
@@ -77,6 +78,8 @@ class InterceptionCore:
     def __init__(self, config: ClickerConfig | None = None):
         self.config = config or ClickerConfig()
         self.running = False
+        self._pause_event = threading.Event()
+        self._pause_event.set()
         self.thread: Optional[threading.Thread] = None
         self.click_count = 0
         self.start_time: Optional[float] = None
@@ -92,6 +95,28 @@ class InterceptionCore:
         self._device = None
         self._initialize_interception()
         self.logger.info("InterceptionCore 初始化完成")
+
+    def _wait_until_resumed(self, poll_interval: float = 0.1) -> bool:
+        """等待恢复运行，返回 False 表示已停止。"""
+        while self.running and not self._pause_event.is_set():
+            time.sleep(poll_interval)
+        return self.running
+
+    def _sleep_interruptible(self, duration: float) -> bool:
+        """支持暂停/停止的分段睡眠。"""
+        deadline = time.time() + duration
+        while self.running:
+            if not self._pause_event.is_set():
+                if not self._wait_until_resumed():
+                    return False
+                continue
+
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                return True
+            time.sleep(min(0.05, remaining))
+
+        return False
 
     def _initialize_interception(self):
         """初始化 Interception 库和上下文"""
@@ -218,7 +243,8 @@ class InterceptionCore:
         # 根据配置决定是否移动鼠标到目标坐标
         if getattr(self.config, 'move_mouse', True):
             self._move_mouse_to(target_x, target_y)
-            time.sleep(0.02)
+            if not self._sleep_interruptible(0.02):
+                return False
         
         # 按下左键
         self._mouse_down()
@@ -226,7 +252,8 @@ class InterceptionCore:
         # 随机持续时间
         hold_time = (self.config.hold_duration + 
                     random.uniform(-self.config.jitter_range, self.config.jitter_range)) / 1000.0
-        time.sleep(max(0.05, hold_time))
+        if not self._sleep_interruptible(max(0.05, hold_time)):
+            return False
         
         # 释放左键
         self._mouse_up()
@@ -242,26 +269,34 @@ class InterceptionCore:
         
         try:
             while self.running:
+                if not self._pause_event.is_set():
+                    if not self._wait_until_resumed():
+                        break
+
                 # 焦点回调（保持目标窗口在前台）
                 if self.focus_callback:
                     try:
                         if not self.focus_callback():
-                            time.sleep(0.1)
+                            if not self._sleep_interruptible(0.1):
+                                break
                             continue
                     except Exception as e:
                         self.logger.warning("焦点回调失败: %s", e)
                 
                 # 执行点击
-                self._perform_click(base_center_x, base_center_y)
+                if not self._perform_click(base_center_x, base_center_y):
+                    break
                 
                 # 微暂停（模拟人工 - 每 7~13 次随机）
                 if self.click_count % self._next_micro_pause_at == 0:
-                    time.sleep(random.uniform(0.15, 0.35))
+                    if not self._sleep_interruptible(random.uniform(0.15, 0.35)):
+                        break
                     self._next_micro_pause_at = random.randint(6, 13)
                 
                 # 点击间隔
                 interval = self.config.click_interval / 1000.0
-                time.sleep(interval)
+                if not self._sleep_interruptible(interval):
+                    break
         
         except Exception as e:
             self.logger.error("点击循环异常: %s", e)
@@ -279,6 +314,7 @@ class InterceptionCore:
             return
 
         self.running = True
+        self._pause_event.set()
         self.click_count = 0
         self.start_time = time.time()
         self._click_anchor_x = self.config.center_x
@@ -296,9 +332,37 @@ class InterceptionCore:
             return
 
         self.running = False
+        self._pause_event.set()
         if self.thread:
             self.thread.join(timeout=1.0)
         self.logger.info("连点器已停止 | 总点击数: %d", self.click_count)
+
+    def pause(self):
+        """暂停连点器。"""
+        if not self.running:
+            self.logger.warning("连点器未在运行，无法暂停")
+            return False
+
+        if not self._pause_event.is_set():
+            return True
+
+        self._pause_event.clear()
+        self.logger.info("连点器已暂停")
+        return True
+
+    def resume(self):
+        """恢复连点器。"""
+        if not self.running:
+            self.logger.warning("连点器未在运行，无法恢复")
+            return False
+
+        self._pause_event.set()
+        self.logger.info("连点器已恢复")
+        return True
+
+    def is_paused(self) -> bool:
+        """返回是否处于暂停状态。"""
+        return self.running and not self._pause_event.is_set()
 
     def set_focus_callback(self, callback: Optional[Callable[[], bool]]) -> None:
         """设置焦点回调函数（在点击前调用）"""
@@ -308,6 +372,7 @@ class InterceptionCore:
         """获取统计信息"""
         stats = {
             "running": self.running,
+            "paused": self.is_paused(),
             "click_count": self.click_count,
             "center_x": self.config.center_x,
             "center_y": self.config.center_y,
