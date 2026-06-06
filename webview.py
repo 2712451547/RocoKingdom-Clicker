@@ -4,6 +4,84 @@ import json
 import threading
 import tkinter as tk
 from tkinter import ttk, messagebox
+import queue
+
+
+# ──────────────────────────────────────────────
+# Floating toast notification (top-left corner)
+# ──────────────────────────────────────────────
+class ToastWindow:
+    """Borderless toast that appears at screen top-left and auto-dismisses."""
+
+    _fade_steps = 4        # number of fade-in/out steps
+    _fade_ms = 30          # ms per fade step
+
+    def __init__(self, root: tk.Tk, text: str, duration: float = 3.0,
+                 bg: str = "#1e293b", fg: str = "#f1f5f9",
+                 font: tuple = ("Segoe UI", 11, "bold")):
+        self.duration = int(duration * 1000)
+
+        self.win = tk.Toplevel(root)
+        self.win.overrideredirect(True)   # no border / title bar
+        self.win.attributes("-topmost", True)
+        self.win.configure(bg=bg)
+        self.win.resizable(False, False)
+
+        # 90 % opacity — visible but not blocking
+        try:
+            self.win.attributes("-alpha", 0.0)
+        except Exception:
+            pass
+
+        label = tk.Label(self.win, text=text, bg=bg, fg=fg, font=font,
+                         justify="left", anchor="w", padx=16, pady=10)
+        label.pack(fill="both", expand=True)
+
+        # Position: 20 px from screen top-left
+        sx = root.winfo_screenwidth()
+        sy = root.winfo_screenheight()
+        # Measure label to size the window
+        self.win.update_idletasks()
+        w = min(label.winfo_reqwidth() + 32, sx - 40)
+        h = label.winfo_reqheight() + 20
+        self.win.geometry(f"{w}x{h}+20+20")
+
+        # Animate in  →  wait  →  animate out  →  destroy
+        self._fade_in()
+
+    # ── fade helpers ──────────────────────────
+    def _fade_in(self, step: int = 0):
+        if step > self._fade_steps:
+            self.win.after(self.duration, self._fade_out)
+            return
+        alpha = round(step / self._fade_steps * 0.9, 2)
+        try:
+            self.win.attributes("-alpha", alpha)
+        except Exception:
+            pass
+        self.win.after(self._fade_ms, lambda: self._fade_in(step + 1))
+
+    def _fade_out(self, step: int = 0):
+        if step > self._fade_steps:
+            self.win.destroy()
+            return
+        alpha = round(0.9 * (1 - step / self._fade_steps), 2)
+        try:
+            self.win.attributes("-alpha", alpha)
+        except Exception:
+            pass
+        self.win.after(self._fade_ms, lambda: self._fade_out(step + 1))
+
+
+# ──────────────────────────────────────────────
+# Toast queue — backend pushes, GUI pops
+# ──────────────────────────────────────────────
+_toast_queue: queue.Queue = queue.Queue()
+
+
+def push_toast(text: str, duration: float = 3.0):
+    """Thread-safe: push a toast message from any thread."""
+    _toast_queue.put((text, duration))
 
 
 _window_config = None
@@ -269,7 +347,17 @@ class _DesktopWindow:
 
     def _refresh_loop(self):
         self.refresh_status()
+        self._drain_toasts()
         self.root.after(2000, self._refresh_loop)
+
+    def _drain_toasts(self):
+        """Pop all queued toasts and display them on the main thread."""
+        while True:
+            try:
+                text, duration = _toast_queue.get_nowait()
+                ToastWindow(self.root, text, duration)
+            except queue.Empty:
+                break
 
     def run(self):
         self.root.mainloop()

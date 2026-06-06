@@ -216,7 +216,7 @@ class GlobalHotkeyListener:
 class ClickerManager:
     """连点器管理类 - 处理热键和用户交互（Interception 版）。"""
 
-    def __init__(self):
+    def __init__(self, push_toast=None):
         self.logger = logging.getLogger("clicker")
         self.clicker = InterceptionCore()
         self.action_executor = ActionExecutor()
@@ -240,13 +240,24 @@ class ClickerManager:
         self._script_session_thread: threading.Thread | None = None
         self._script_session_stop_event: threading.Event | None = None
         self._script_session_pause_event: threading.Event | None = None
+        # Toast notification callback (set by GUI)
+        self._push_toast = push_toast
 
         self.logger.info("连点器管理器已初始化")
+
+    def _toast(self, text: str, duration: float = 3.0):
+        """Show a floating toast notification (thread-safe, no-op if no GUI)."""
+        try:
+            if self._push_toast:
+                self._push_toast(text, duration)
+        except Exception:
+            pass
 
     def _on_start(self):
         if not self.clicker.running:
             self.logger.info("连点器将在 3 秒后启动，请切换到游戏窗口...")
             print("\n⏳ 连点器将在 3 秒后启动...")
+            self._toast("⏳ 连点器即将启动", duration=3.5)
             # 设置倒计时信息供 GUI 查询
             try:
                 self.countdown_end = time.time() + 3
@@ -269,6 +280,7 @@ class ClickerManager:
 
             self.logger.info("连点器将在 3 秒后恢复，请切换到游戏窗口...")
             print("\n⏳ 连点器将在 3 秒后恢复...")
+            self._toast("⏳ 连点器即将恢复", duration=3.5)
             try:
                 self.countdown_end = time.time() + 3
                 self.countdown_label = "连点器将恢复运行"
@@ -290,6 +302,7 @@ class ClickerManager:
         if self.clicker.running:
             self.clicker.stop()
             self.logger.info("连点器已停止")
+            self._toast("⏹ 连点器已停止", duration=2.0)
 
     def _on_exit(self):
         if self.clicker.running:
@@ -368,6 +381,7 @@ class ClickerManager:
 
         self.logger.info("脚本将在 3 秒后启动: %s", script_name)
         print(f"\n⏳ 脚本 {script_name} 将在 3 秒后启动...")
+        self._toast(f"⏳ 脚本 {script_name} 即将启动", duration=3.5)
         # 设置倒计时信息供 GUI 查询
         try:
             self.countdown_end = time.time() + 3
@@ -413,10 +427,12 @@ class ClickerManager:
                         self.script_paused = True
                         self.logger.info("脚本已暂停: %s", script_name)
                         print("⏸ 脚本已暂停")
+                        self._toast("⏸ 脚本已暂停", duration=2.0)
 
                     elif vk_code == VK_F1 and paused:
                         self.logger.info("脚本将在 3 秒后继续: %s", script_name)
                         print("\n⏳ 脚本将在 3 秒后继续执行，请切换到游戏窗口...")
+                        self._toast("⏳ 脚本即将继续", duration=3.5)
                         for countdown in range(3, 0, -1):
                             if stop_event.is_set():
                                 break
@@ -451,6 +467,7 @@ class ClickerManager:
             return
 
         print("✓ 脚本已执行完成")
+        self._toast("✓ 脚本已执行完成", duration=3.0)
 
     def show_menu(self):
         """显示主菜单。"""

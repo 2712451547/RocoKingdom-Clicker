@@ -6,6 +6,12 @@ import webview
 from Clicker import ClickerManager
 from ConfigManager import ConfigManager
 
+# Toast helper — available when webview.py (Tkinter GUI) is loaded.
+try:
+    from webview import push_toast
+except ImportError:
+    push_toast = None
+
 
 APP_DIR = Path(__file__).resolve().parent
 WEB_DIR = APP_DIR / "web"
@@ -101,7 +107,7 @@ class Api:
 
 
 def start_gui():
-    manager = ClickerManager()
+    manager = ClickerManager(push_toast=push_toast)
 
     api = Api(manager)
 
