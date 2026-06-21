@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2026 RocoKingdom Clicker Project
+Copyright (c) 2026 Ding Ning
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,24 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
--------------------------------------------------------------------------------
-Third-Party Notices:
-
-This project dynamically links with the Interception library
-(https://github.com/oblitum/Interception), which is licensed under the
-GNU Lesser General Public License, version 3 (LGPL-3.0).
-
-The source code of Interception, along with its official binary releases,
-is available from the upstream project. The copy of Interception shipped
-with this project is located in the `third/Interception/` directory, together
-with the original license text (see `third/Interception/licenses/`).
-
-You may redistribute and/or modify the Interception library under the terms
-of the GNU Lesser General Public License as published by the Free Software
-Foundation, either version 3 of the License, or (at your option) any later
-version.
-
-A copy of the GNU General Public License (GPL-3.0) and the GNU Lesser General
-Public License (LGPL-3.0) is distributed with this project in the files
-`COPYING` and `COPYING.LESSER`, respectively.
