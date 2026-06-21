@@ -2,84 +2,37 @@
 setlocal
 cd /d "%~dp0"
 
-net session >nul 2>&1
-if errorlevel 1 (
-    echo Requesting administrator privileges...
-    echo Please click Yes in the UAC dialog.
-    powershell -NoProfile -Command "Start-Process -FilePath 'cmd.exe' -ArgumentList '/k', '""%~f0""' -Verb RunAs"
-    exit /b
+set "EXE=%~dp0RocoKingdom_Clicker.exe"
+set "VENV_PY=%~dp0.venv\Scripts\pythonw.exe"
+set "DLL=%~dp0interception.dll"
+set "INSTALLER=%~dp0driver_installer\install-interception.exe"
+set "FALLBACK_DLL=%~dp0third\Interception\library\x64\interception.dll"
+set "FALLBACK_INSTALLER=%~dp0third\Interception\command line installer\install-interception.exe"
+
+if not exist "%DLL%" (
+    if exist "%FALLBACK_DLL%" set "DLL=%FALLBACK_DLL%"
+)
+if not exist "%INSTALLER%" (
+    if exist "%FALLBACK_INSTALLER%" set "INSTALLER=%FALLBACK_INSTALLER%"
 )
 
-if exist "%~dp0RocoKingdom_Clicker.exe" goto release_mode
-
-title RocoKingdom Clicker Release
-color 0A
-cls
-
-echo.
-echo ========================================
-echo     RocoKingdom Clicker Release
-echo         Powered by Interception
-echo ========================================
-echo.
-
-set "PYTHON_EXE=%~dp0.venv\Scripts\pythonw.exe"
-
-if not exist "%PYTHON_EXE%" (
-    set "PYTHON_EXE=%~dp0.venv\Scripts\python.exe"
-)
-
-if not exist "%PYTHON_EXE%" (
-    echo Local virtual environment not found.
-    echo Creating .venv for this release...
-    python -m venv .venv
-)
-
-"%PYTHON_EXE%" --version >nul 2>&1
-if errorlevel 1 (
-    color 0C
-    echo ERROR: Local Python environment not found.
-    echo.
-    echo Please install Python 3.10+ and make sure it is available on PATH.
+if not exist "%DLL%" (
+    echo 【错误】找不到 interception.dll
+    echo    查找路径：%DLL%
+    echo    请确认程序目录完整，或重新运行 build_release.bat 打包。
     echo.
     pause
     exit /b 1
 )
 
-for /f "tokens=*" %%i in ('"%PYTHON_EXE%" --version') do set "PYTHON_VERSION=%%i"
-echo OK: Detected %PYTHON_VERSION%
-echo.
-
-echo OK: Using project-local .venv
-echo.
-echo ========================================
-echo Launching clicker...
-echo Please wait...
-echo ========================================
-echo.
-
-"%PYTHON_EXE%" Clicker.py --gui
-
-if errorlevel 1 (
-    color 0C
-    echo.
-    echo ERROR: Program crashed
-    echo.
-) else (
-    color 02
-    echo.
-    echo OK: Program exited normally
+if not exist "%INSTALLER%" (
+    echo 【警告】未找到驱动安装程序：driver_installer\install-interception.exe
+    echo    程序仍然会尝试启动，但如果驱动未安装，会再次弹出提示。
     echo.
 )
 
-pause
-endlocal
-goto :eof
-
-:release_mode
-title RocoKingdom Clicker Release
+title RocoKingdom Clicker
 color 0A
-cls
 
 echo.
 echo ========================================
@@ -88,22 +41,35 @@ echo         Powered by Interception
 echo ========================================
 echo.
 
-echo Launching bundled release executable...
-echo.
-
-"%~dp0RocoKingdom_Clicker.exe" --gui
-
-if errorlevel 1 (
-    color 0C
-    echo.
-    echo ERROR: Program crashed
-    echo.
-) else (
-    color 02
-    echo.
-    echo OK: Program exited normally
-    echo.
+rem ---- 发布包模式（有 RocoKingdom_Clicker.exe） ----
+if exist "%EXE%" (
+    echo 以管理员权限启动 RocoKingdom_Clicker.exe ...
+    powershell -NoProfile -Command "Start-Process -FilePath '%EXE%' -ArgumentList '--gui' -Verb RunAs -WorkingDirectory '%~dp0'"
+    goto :done
 )
 
+rem ---- 开发模式（有 .venv） ----
+if exist "%VENV_PY%" (
+    echo 使用本地虚拟环境启动 Clicker.py ...
+    powershell -NoProfile -Command "Start-Process -FilePath '%VENV_PY%' -ArgumentList 'Clicker.py', '--gui' -Verb RunAs -WorkingDirectory '%~dp0'"
+    goto :done
+)
+
+rem ---- 回退：系统 Python ----
+where python >nul 2>&1
+if not errorlevel 1 (
+    echo 使用系统 Python 启动 Clicker.py ...
+    powershell -NoProfile -Command "Start-Process -FilePath 'pythonw.exe' -ArgumentList 'Clicker.py', '--gui' -Verb RunAs -WorkingDirectory '%~dp0'"
+    goto :done
+)
+
+color 0C
+echo.
+echo 【错误】未找到可用的 Python 环境。
+echo 请先安装 Python 3.10+，或重新下载发布包。
+echo.
 pause
+exit /b 1
+
+:done
 endlocal

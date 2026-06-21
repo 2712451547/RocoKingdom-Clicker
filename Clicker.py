@@ -84,6 +84,26 @@ def setup_logger():
     )
 
 
+def show_message_box(text: str, title: str = "RocoKingdom Clicker", error: bool = True) -> int:
+    """弹出一个 Windows 消息框（静默启动模式下也可见）。
+
+    MB_OK = 0, MB_ICONERROR = 0x10, MB_ICONWARNING = 0x30, MB_TOPMOST = 0x40000
+    """
+    try:
+        flags = 0
+        if error:
+            flags |= 0x10  # MB_ICONERROR
+        else:
+            flags |= 0x30  # MB_ICONWARNING
+        flags |= 0x40000  # MB_TOPMOST 置顶显示
+        return int(ctypes.windll.user32.MessageBoxW(0, str(text), str(title), flags))
+    except Exception:
+        # 最后兜底：打印到标准输出，避免无声失败
+        print(f"\n[{title}]")
+        print(text)
+        return 0
+
+
 def key_pressed(vk_code: int) -> bool:
     """检测虚拟按键是否被按下。"""
     return bool(ctypes.windll.user32.GetAsyncKeyState(vk_code) & 0x8000)
@@ -214,7 +234,10 @@ class GlobalHotkeyListener:
 
 
 class ClickerManager:
-    """连点器管理类 - 处理热键和用户交互（Interception 版）。"""
+    """连点器管理类 - 处理热键和用户交互（Interception 版）。
+
+    驱动未安装时不会崩溃，但会在各个入口处显示 MessageBox 提示用户安装驱动。
+    """
 
     def __init__(self, push_toast=None):
         self.logger = logging.getLogger("clicker")
@@ -243,7 +266,25 @@ class ClickerManager:
         # Toast notification callback (set by GUI)
         self._push_toast = push_toast
 
+        if not self.clicker.is_ready():
+            self.logger.warning("Interception 驱动未就绪：%s", self.clicker.init_error)
         self.logger.info("连点器管理器已初始化")
+
+    def _show_driver_warning(self):
+        """显示驱动未就绪的 MessageBox（带安装步骤），同时返回 False 方便调用方处理。"""
+        msg = (
+            "Interception 驱动未就绪，无法执行点击操作。\n\n"
+            f"{self.clicker.init_error or '请先安装驱动。'}\n\n"
+            "安装步骤：\n"
+            "  1) 以【管理员身份】运行程序目录下 driver_installer\\install-interception.exe /install\n"
+            "  2) 重启电脑后重新运行本程序。"
+        )
+        self.logger.warning("驱动未就绪，拒绝执行操作：%s", self.clicker.init_error)
+        try:
+            show_message_box(msg, "驱动未就绪 - RocoKingdom Clicker", error=True)
+        except Exception:
+            pass
+        return False
 
     def _toast(self, text: str, duration: float = 3.0):
         """Show a floating toast notification (thread-safe, no-op if no GUI)."""
@@ -254,6 +295,9 @@ class ClickerManager:
             pass
 
     def _on_start(self):
+        if not self.clicker.is_ready():
+            self._show_driver_warning()
+            return
         if not self.clicker.running:
             self.logger.info("连点器将在 3 秒后启动，请切换到游戏窗口...")
             print("\n⏳ 连点器将在 3 秒后启动...")
@@ -360,6 +404,9 @@ class ClickerManager:
 
     def _run_script_session(self, script_name: str, actions) -> None:
         """以和连点器类似的方式运行动作脚本。"""
+        if not self.clicker.is_ready():
+            self._show_driver_warning()
+            return
         if not self._stop_active_script_session():
             print(f"❌ 旧脚本会话未能及时退出，已取消启动新脚本: {script_name}")
             return
@@ -743,6 +790,23 @@ def main():
         if getattr(sys, 'frozen', False) and not args.gui:
             args.gui = True
 
+        # 先尝试初始化一次，以检查驱动/DLL 是否就绪
+        setup_logger()
+        probe = InterceptionCore()
+        if not probe.is_ready():
+            msg = (
+                "RocoKingdom Clicker 需要 Interception 驱动才能工作。\n\n"
+                f"{probe.init_error or '无法加载 interception.dll。'}\n\n"
+                "安装步骤：\n"
+                "  1) 以【管理员身份】运行本程序目录中的 driver_installer\\install-interception.exe /install\n"
+                "  2) 重启电脑后再运行本程序。\n\n"
+                "（如果你已安装驱动，可能只是还没重启；或安装程序所在路径不正确。）"
+            )
+            show_message_box(msg, "驱动未就绪 - RocoKingdom Clicker", error=True)
+            logging.error("Interception 初始化失败：%s", probe.init_error)
+            sys.exit(1)
+        del probe
+
         if args.gui:
             # 延迟导入 GUI，以避免在非 GUI 模式下引入额外依赖
             try:
@@ -751,12 +815,21 @@ def main():
                 return
             except Exception as e:
                 logging.error("启动 GUI 失败: %s", e)
-                # 回退到 CLI 模式
+                show_message_box(
+                    f"图形界面启动失败：\n{e}\n\n将使用命令行模式继续。",
+                    "GUI 启动失败 - RocoKingdom Clicker",
+                    error=True,
+                )
 
         manager = ClickerManager()
         manager.run()
     except Exception as e:
         logging.error("致命错误: %s", e)
+        show_message_box(
+            f"程序启动时发生错误：\n{e}\n\n请先以管理员身份运行 driver_installer\\install-interception.exe /install\n安装驱动并重启电脑。",
+            "启动失败 - RocoKingdom Clicker",
+            error=True,
+        )
         sys.exit(1)
 
 

@@ -7,7 +7,7 @@ echo ========================================
 echo     RocoKingdom Clicker - Release Builder
 echo ========================================
 
-rem 1) Use the global Python interpreter
+rem 1) Locate Python
 set "PY="
 
 where py >nul 2>&1
@@ -39,62 +39,26 @@ echo Using Python: %PY%
 
 rem 2) Install build deps
 echo Upgrading pip and installing PyInstaller...
-call %PY% -m pip install --user --upgrade pip setuptools wheel pyinstaller >nul 2>&1
+%PY% -m pip install --user --upgrade pip setuptools wheel pyinstaller >nul 2>&1
 if errorlevel 1 (
     echo Failed to install PyInstaller.
     exit /b 1
 )
 
-rem 3) Run PyInstaller (onedir so interception.dll can sit next to exe)
+rem 3) Run PyInstaller
 echo Running PyInstaller (windowed)...
-call %PY% -m PyInstaller --noconfirm --clean --distpath "%~dp0dist" --workpath "%~dp0build_pyinstaller" --specpath "%~dp0build_pyinstaller" --name "RocoKingdom_Clicker" --onedir --windowed --hidden-import gui --hidden-import webview --add-data "%CD%\docs;docs" Clicker.py
+%PY% -m PyInstaller --noconfirm --clean --distpath "%~dp0dist" --workpath "%~dp0build_pyinstaller" --specpath "%~dp0build_pyinstaller" --name "RocoKingdom_Clicker" --onedir --windowed --hidden-import gui --hidden-import webview --add-data "%~dp0docs;docs" Clicker.py
 if errorlevel 1 (
     echo PyInstaller build failed.
     exit /b 1
 )
 
-rem 4) Legacy web UI assets removed; tkinter-based local GUI used instead.
-rem    Previously we copied web/ into the release. That folder is no longer needed.
-
-rem 5) Copy curated data folders so sample scripts and default config are included
-if exist "%~dp0data\action_scripts" (
-    powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '%~dp0dist\RocoKingdom_Clicker\data\action_scripts' | Out-Null; Copy-Item -Path '%~dp0data\action_scripts\*' -Destination '%~dp0dist\RocoKingdom_Clicker\data\action_scripts\' -Force"
-)
-if exist "%~dp0data\clicker_configs" (
-    powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '%~dp0dist\RocoKingdom_Clicker\data\clicker_configs' | Out-Null; Copy-Item -Path '%~dp0data\clicker_configs\*' -Destination '%~dp0dist\RocoKingdom_Clicker\data\clicker_configs\' -Force"
-)
-
-rem 6) Copy interception.dll if available
-if exist "%~dp0interception.dll" (
-    echo Copying interception.dll to release folder...
-    copy /Y "%~dp0interception.dll" "%~dp0dist\RocoKingdom_Clicker\" >nul
-) else (
-    echo WARNING: interception.dll not found in project root. Please copy the built DLL into the release folder manually.
-)
-
-rem 7) Copy helper files (run script, README)
-if exist "%~dp0run_clicker.bat" copy /Y "%~dp0run_clicker.bat" "%~dp0dist\RocoKingdom_Clicker\" >nul
-if exist "%~dp0README.md" copy /Y "%~dp0README.md" "%~dp0dist\RocoKingdom_Clicker\" >nul
-if exist "%~dp0run_clicker.vbs" copy /Y "%~dp0run_clicker.vbs" "%~dp0dist\RocoKingdom_Clicker\" >nul
-
-rem 8) Package into release zip
-if not exist "%~dp0release" mkdir "%~dp0release"
-set "ZIP_OK=0"
-for /l %%I in (1,1,5) do (
-    echo Creating release archive... (attempt %%I/5)
-    powershell -NoProfile -Command "$ErrorActionPreference='Stop'; Compress-Archive -Path '%~dp0dist\\RocoKingdom_Clicker\\*' -DestinationPath '%~dp0release\\RocoKingdom_Clicker.zip' -Force"
-    if not errorlevel 1 (
-        set "ZIP_OK=1"
-        goto :zip_done
-    )
-    if %%I LSS 5 (
-        echo Archive attempt %%I failed, retrying after a short wait...
-        timeout /t 2 /nobreak >nul
-    )
-)
-:zip_done
-if "%ZIP_OK%"=="0" (
-    echo Failed to create release archive.
+rem 4) All copy / license / packaging steps delegated to PowerShell so we avoid
+rem    cmd/PowerShell quoting issues and execution policy surprises inside .bat
+echo Running post-build copy (data, driver, licenses)...
+powershell -ExecutionPolicy Bypass -NoProfile -File "%~dp0_release_copy.ps1"
+if errorlevel 1 (
+    echo Post-build copy failed.
     exit /b 1
 )
 

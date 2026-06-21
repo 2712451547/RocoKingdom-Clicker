@@ -67,6 +67,8 @@ class Api:
         cfg = self.manager.clicker.config
         # 仅返回对用户有用的精简字段；在 move_mouse 为 True 时才包含位置信息
         status = {
+            "interception_ready": bool(self.manager.clicker.is_ready()),
+            "interception_error": getattr(self.manager.clicker, "init_error", None),
             "running": bool(self.manager.clicker.running),
             "script_running": bool(getattr(self.manager, 'script_running', False)),
             "script_paused": bool(getattr(self.manager, 'script_paused', False)),
@@ -110,6 +112,22 @@ def start_gui():
     manager = ClickerManager(push_toast=push_toast)
 
     api = Api(manager)
+
+    # 如果 Interception 未就绪，在启动窗口时立即提示一次（避免用户进了界面还不知情）
+    if not manager.clicker.is_ready():
+        try:
+            from Clicker import show_message_box
+            msg = (
+                "RocoKingdom Clicker 需要 Interception 驱动才能工作。\n\n"
+                f"{manager.clicker.init_error or '无法加载 interception.dll。'}\n\n"
+                "安装步骤：\n"
+                "  1) 以【管理员身份】运行程序目录下 driver_installer\\install-interception.exe /install\n"
+                "  2) 重启电脑后再运行本程序。\n\n"
+                "（如果只浏览界面，不需要驱动；但点击操作会被拒绝。）"
+            )
+            show_message_box(msg, "驱动未就绪 - RocoKingdom Clicker", error=False)
+        except Exception:
+            pass
 
     index_path = (WEB_DIR / 'index.html').as_uri()
 

@@ -1,7 +1,7 @@
 .venv
 __pycache__
 
-# Generated release artifacts (kept here as notes; uncomment if you want Git to ignore them)
+# Generated release artifacts
 dist/
 build_pyinstaller/
 release/
@@ -9,3 +9,10 @@ build_release_debug.log
 build_release_debug.bat
 build_release_fixed.bat
 data/clicker.log
+
+# Temporary helper scripts
+_finish_release.ps1
+_verify_build.ps1
+_check_pic.py
+_resize_pic.py
+_convert_vbs.py

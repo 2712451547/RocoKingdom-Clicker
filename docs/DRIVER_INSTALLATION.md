@@ -1,62 +1,39 @@
-# 安装 Interception 
+# 安装 Interception 驱动
 
-## 1. 安装 Windows Driver Kit Version 7.1.0
+本仓库在 `third/Interception/` 目录下已经提供了官方编译好的 `interception.dll`（x64 / x86 各一份）以及驱动安装工具，因此**不需要自行安装 Windows Driver Kit，也不需要自己编译 DLL**。
 
-从官网下载 ISO 文件 [Windows Driver Kit Version 7.1.0](https://www.microsoft.com/en-us/download/details.aspx?id=11800)。
+你只需要做两件事：安装驱动 → 重启电脑。
 
-![alt text](pic/1.png)
+## 1. 定位驱动安装程序
 
-点击并安装全部内容。
+根据你拿到的是发布包还是源码，使用对应的路径：
 
-![alt text](pic/2.png)
-![alt text](pic/3.png)
+### 发布包用户（release zip）
+解压后，安装程序位于：
 
-## 2. 配置 Windows Driver Kit 的环境变量
-
-设置中搜索变量，点击编辑系统环境变量
-
-![alt text](pic/4.png)
-
-
-![alt text](pic/5.png)
-
-新建系统环境变量，名为 WDK ，内容为 Windows Driver Kit 的安装目录。
-
-![alt text](pic/6.png)
-
-![alt text](pic/7.png)
-
-然后保存并退出。
-
-## 3. 编译 Interception 的 DLL
-
-构建 Interception，仓库中包含 x86/x64 的构建脚本。
-
-在已设置 WDK 环境的管理员开发者命令提示符中运行：
-
-```powershell
-  cd Interception\library
-  buildit.cmd      # 32-bit
-  buildit-x64.cmd  # 64-bit
- ```
-
-构建成功后，将生成的 `Interception\library\objfre_win7_amd64\amd64\interception.dll` 复制到本项目的根目录。
-
-## 4. 安装 Interception 驱动
-
-下载 Interception 的[发布版本](https://github.com/oblitum/Interception/releases/tag/v1.0.1)，解压后，将 `command line installer` 目录名改为 `installer`。
-
-以管理员权限打开 CMD ：
-
-![alt text](pic/8.png)
-
-CD 至 `installer` 目录后安装驱动：
-
-```powershell
-.\install-interception.exe /install
+```
+driver_installer\install-interception.exe
 ```
 
-看到输出：
+### 源码开发者
+直接从仓库里取：
+
+```
+third\Interception\command line installer\install-interception.exe
+```
+
+运行该程序**需要管理员权限**。
+
+## 2. 安装驱动
+
+以**管理员权限**打开 CMD 或 PowerShell，进入安装程序所在目录后执行：
+
+```bat
+install-interception.exe /install
+```
+
+如果看到以下输出，说明驱动安装成功：
+
 ```
 Interception command line installation tool
 Copyright (C) 2008-2018 Francisco Lopes da Silva
@@ -64,4 +41,32 @@ Copyright (C) 2008-2018 Francisco Lopes da Silva
 Interception successfully installed. You must reboot for it to take effect.
 ```
 
-最后重启电脑。
+## 3. 重启电脑
+
+安装驱动后，**必须重启系统**才能生效。
+
+## 4. 验证（可选）
+
+重启后在项目根目录运行：
+
+```bat
+python Clicker.py --gui
+```
+
+或双击 `run_clicker.vbs`。如果能正常启动 GUI 并显示“连点器已就绪”等日志，说明 Interception 库加载成功。
+
+如果启动时提示“无法加载 interception.dll”，请检查：
+
+1. 驱动是否已完成安装并重启。
+2. 发布包用户：确认解压目录里有 `interception.dll`（与 `RocoKingdom_Clicker.exe` 同目录）。
+3. 源码用户：确认 `third\Interception\library\x64\interception.dll` 存在（64 位 Python 会优先使用它；若你使用 32 位 Python，程序会自动尝试 `third\Interception\library\x86\interception.dll`）。
+
+## 5. 卸载驱动（如需）
+
+如果之后想移除驱动，同样以管理员权限进入同一目录并执行：
+
+```bat
+install-interception.exe /uninstall
+```
+
+然后重启系统即可。

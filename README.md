@@ -8,11 +8,11 @@
 
 ### 前置步骤
 
-按照 [说明](docs/DRIVER_INSTALLATION.md) 安装驱动。
+只需要安装一次 Interception 驱动（仓库已附带编译好的 DLL 与安装程序，**不需要自己安装 WDK 或编译 DLL**）。按照 [驱动安装说明](docs/DRIVER_INSTALLATION.md) 操作即可。
 
 ### 使用发布包运行
 
-下载并解压发布包后，双击 `run_clicker.vbs` 来启动。该 VBS 会在需要时弹出 UAC 提示以提升权限，确认后程序以静默窗口（无控制台）方式运行，适合普通最终用户。
+下载并解压发布包后，先以管理员身份运行包内 `driver_installer\install-interception.exe /install`（首次需要，详见 [驱动安装说明](docs/DRIVER_INSTALLATION.md)），然后双击 `run_clicker.vbs` 启动。该 VBS 会在需要时弹出 UAC 提示以提升权限，确认后程序以静默窗口（无控制台）方式运行，适合普通最终用户。
 
 ### 开发与调试（源码运行）
 
@@ -161,7 +161,7 @@ run_clicker.bat
 - 要查看详细日志，可在开发模式下运行 `python Clicker.py`（不加 `--gui`）以输出控制台日志。
 
 ## 更新日志与贡献
-- 本次详细变更记录请见：[docs/changelog/2026-05-31.md](docs/changelog/2026-05-31.md)
+- 本次详细变更记录请见：[docs/changelog/2026-06-21.md](docs/changelog/2026-06-21.md)
 - 欢迎提交 issue 或 PR，描述你的使用场景与复现步骤。
 
 ---
@@ -175,3 +175,20 @@ run_clicker.bat
 群号：1105254591
 
 > 风险提示：本工具可能会违反游戏使用条款或遭受反作弊检测。请仅在你愿意承担风险的情况下使用。
+
+## 许可协议 (Licensing)
+
+本项目的**原创代码**（项目根目录下的 `*.py`、`*.bat`、`*.vbs`、`*.md`、`data/`、`docs/` 等非第三方的非二进制文件）采用 **MIT License** 发布，完整文本见 [LICENSE](LICENSE)。
+
+本项目**动态链接**了第三方库 **Interception**（<https://github.com/oblitum/Interception>），该库采用 **GNU Lesser General Public License, version 3 (LGPL-3.0)** 授权。Interception 的库文件位于 `third/Interception/`，其原始许可证文件位于 `third/Interception/licenses/`，同时本仓库根目录也附带了完整许可证文本：
+
+- `COPYING` — GNU General Public License, version 3（GPL-3.0）
+- `COPYING.LESSER` — GNU Lesser General Public License, version 3（LGPL-3.0）
+
+根据 LGPL-3.0 第 4 条要求，特此声明：
+
+1. 本项目中的 `interception.dll`、`interception.lib`、`interception.h` 及驱动安装程序均为 **Interception 项目原样提供的原始二进制文件**，未作任何修改；本项目只是调用其 DLL 导出函数。
+2. Interception 的源代码和官方发布版本可从其上游仓库获取：<https://github.com/oblitum/Interception/releases>
+3. 本项目的 **原创代码**（不包含 `third/Interception/` 下的任何内容）继续以 **MIT License** 独立发布；用户可按自己的需要替换、重新编译或使用其他版本的 Interception DLL。
+4. 若你分发本项目（含 `interception.dll`），请确保 `LICENSE`、`COPYING`、`COPYING.LESSER` 与 `third/Interception/licenses/` 下原始许可证文本**一并分发**，并在分发说明中注明项目使用了 Interception 库。
+5. 商业使用：Interception 另提供商业授权许可，详见 `third/Interception/licenses/commercial-usage/` 下的 PDF 文档。如果你希望在商业产品中使用 Interception 而不受 LGPL 约束，请联系 Interception 的原作者。

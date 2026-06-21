@@ -88,13 +88,21 @@ class InterceptionCore:
         self._click_anchor_y = self.config.center_y
         self._next_micro_pause_at = random.randint(6, 13)
         self.logger = logging.getLogger("interception_clicker")
-        
-        # 加载 Interception 库
+
+        # 加载 Interception 库（失败时不抛异常，只记录错误，由上层决定如何提示用户）
         self._lib = None
         self._ctx = None
         self._device = None
+        self.init_error: Optional[str] = None
         self._initialize_interception()
-        self.logger.info("InterceptionCore 初始化完成")
+        if self.init_error:
+            self.logger.warning("Interception 初始化失败: %s", self.init_error)
+        else:
+            self.logger.info("InterceptionCore 初始化完成")
+
+    def is_ready(self) -> bool:
+        """返回 Interception 驱动/DLL 是否已可用。"""
+        return self._lib is not None and self._ctx is not None
 
     def _wait_until_resumed(self, poll_interval: float = 0.1) -> bool:
         """等待恢复运行，返回 False 表示已停止。"""
@@ -119,29 +127,51 @@ class InterceptionCore:
         return False
 
     def _initialize_interception(self):
-        """初始化 Interception 库和上下文"""
+        """初始化 Interception 库和上下文（失败时写入 self.init_error 而不是抛异常）。"""
         try:
-            # 尝试加载 interception.dll
             import os
+            import platform
+
+            # 根据当前进程架构决定使用 x64 还是 x86 版本的 DLL
+            arch = "x64" if platform.architecture()[0] == "64bit" else "x86"
+            project_root = os.path.dirname(os.path.abspath(__file__))
+
+            # 候选路径：项目根目录（便于本地直接运行）→ 第三方目录（库随仓库自带）
+            # → 当前工作目录
             dll_paths = [
-                os.path.join(os.path.dirname(__file__), "interception.dll"),
+                os.path.join(project_root, "interception.dll"),
+                os.path.join(project_root, "third", "Interception", "library", arch, "interception.dll"),
+                os.path.join(project_root, "third", "Interception", "library", "x64", "interception.dll"),
+                os.path.join(project_root, "third", "Interception", "library", "x86", "interception.dll"),
                 "interception.dll",
             ]
-            
+
             lib = None
+            used_path = None
             for path in dll_paths:
+                if not path or not os.path.isfile(path):
+                    continue
                 try:
                     lib = ctypes.CDLL(path)
-                    self.logger.info(f"成功加载 Interception 库: {path}")
+                    used_path = path
                     break
                 except Exception:
-                    pass
-            
+                    continue
+
             if lib is None:
-                raise OSError("无法加载 interception.dll - 请检查驱动是否已安装")
-            
+                hint = os.path.join(project_root, "third", "Interception", "library", arch, "interception.dll")
+                self.init_error = (
+                    "找不到或无法加载 interception.dll\n"
+                    "可能原因：\n"
+                    "  1) Interception 驱动尚未安装\n"
+                    "  2) DLL 文件缺失或路径不正确\n\n"
+                    f"尝试的架构：{arch}\n最后一次尝试路径：{hint}\n\n"
+                    "请先以管理员身份运行 driver_installer\\install-interception.exe /install 安装驱动，然后重启电脑。"
+                )
+                return
+
             self._lib = lib
-            
+
             # 绑定函数
             self._lib.interception_create_context.restype = ctypes.c_void_p
             self._lib.interception_destroy_context.argtypes = [ctypes.c_void_p]
@@ -152,22 +182,42 @@ class InterceptionCore:
                 ctypes.c_uint,    # nstroke
             ]
             self._lib.interception_send.restype = ctypes.c_int
-            
-            # 创建上下文
-            self._ctx = self._lib.interception_create_context()
+
+            # 创建上下文（驱动未安装/未重启时，这里通常返回 NULL 或直接失败）
+            try:
+                self._ctx = self._lib.interception_create_context()
+            except Exception as inner:
+                self._ctx = None
+                self.init_error = (
+                    "Interception 驱动未就绪：interception_create_context 调用失败。\n\n"
+                    f"错误信息：{inner}\n\n"
+                    "请先以管理员身份运行 driver_installer\\install-interception.exe /install 安装驱动，然后重启电脑。"
+                )
+                return
+
             if not self._ctx:
-                raise OSError("无法创建 Interception 上下文")
-            
+                self.init_error = (
+                    "Interception 驱动未就绪：无法创建上下文（返回 NULL）。\n\n"
+                    "可能是驱动已安装但未重启电脑，或者驱动未正确安装。\n"
+                    "请运行 driver_installer\\install-interception.exe /install 重新安装驱动，然后重启电脑。"
+                )
+                return
+
             # 获取虚拟鼠标设备（INTERCEPTION_MAX_KEYBOARD=10, INTERCEPTION_MOUSE(0) = 11）
             self._device = 11
+            self.logger.info(f"成功加载 Interception 库 ({arch}): {used_path}")
             self.logger.info("Interception 上下文已创建，设备 ID: %d", self._device)
-            
+
         except Exception as e:
-            self.logger.error("Interception 初始化失败: %s", e)
+            self.logger.error("Interception 初始化异常: %s", e)
             self._lib = None
             self._ctx = None
             self._device = None
-            raise
+            self.init_error = (
+                "Interception 初始化异常：\n"
+                f"{e}\n\n"
+                "请先以管理员身份运行 driver_installer\\install-interception.exe /install 安装驱动，然后重启电脑。"
+            )
 
     def _send_mouse_stroke(self, stroke: InterceptionMouseStroke) -> bool:
         """发送单个鼠标 stroke"""
